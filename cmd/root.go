@@ -33,6 +33,8 @@ var (
 	flagResume  string
 	flagRender  bool
 	flagTools   bool
+
+	cfg *session.Config
 )
 
 var rootCmd = &cobra.Command{
@@ -70,6 +72,7 @@ func run(cmd *cobra.Command, args []string) error {
 		return runHistory()
 	}
 
+	cfg = session.LoadConfig()
 	sysPrompt := systemprompt.Get(flagSystem, flagPersona)
 	b := backend.ForModel(flagModel)
 	if err := b.Validate(); err != nil {
@@ -135,6 +138,9 @@ func chatWithTools(ctx context.Context, b backend.Backend, model string, message
 	var executor *tools.Executor
 	if toolDefs != nil {
 		executor = tools.NewExecutor()
+		if cfg != nil {
+			executor.DefaultLocation = cfg.Location
+		}
 		defer executor.Close()
 	}
 
@@ -458,10 +464,27 @@ func handleSlashCommand(input string, sess *session.Session, store *session.Stor
 			render.Infof("Tools disabled")
 		}
 
+	case "/location":
+		if len(parts) >= 2 {
+			loc := strings.Join(parts[1:], " ")
+			cfg.Location = loc
+			if err := cfg.Save(); err != nil {
+				render.Errorf("Failed to save config: %v", err)
+			} else {
+				render.Infof("Location set to %s", loc)
+			}
+		} else if cfg.Location != "" {
+			render.Infof("Current location: %s", cfg.Location)
+			render.Infof("Usage: /location <city or zip>")
+		} else {
+			render.Infof("No location set. Usage: /location <city or zip>")
+		}
+
 	case "/help":
 		fmt.Println(render.SystemStyle.Render("Commands:"))
 		fmt.Println(render.SystemStyle.Render("  /model         — pick model from list"))
 		fmt.Println(render.SystemStyle.Render("  /model <name>  — switch to named model"))
+		fmt.Println(render.SystemStyle.Render("  /location      — show or set default location"))
 		fmt.Println(render.SystemStyle.Render("  /clear         — clear conversation"))
 		fmt.Println(render.SystemStyle.Render("  /history       — list saved sessions"))
 		fmt.Println(render.SystemStyle.Render("  /tools         — toggle web search tools"))

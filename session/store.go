@@ -25,6 +25,12 @@ func NewStore() *Store {
 	return &Store{dir: dir}
 }
 
+// NewStoreAt creates a store at the given directory path.
+// Used for device-scoped session stores.
+func NewStoreAt(dir string) *Store {
+	return &Store{dir: dir}
+}
+
 // Save writes a session to disk atomically.
 func (s *Store) Save(sess *Session) error {
 	if err := os.MkdirAll(s.dir, 0700); err != nil {
@@ -120,4 +126,13 @@ func (s *Store) List() ([]*Session, error) {
 	})
 
 	return sessions, nil
+}
+
+// Delete removes a session by exact ID.
+func (s *Store) Delete(id string) error {
+	path := filepath.Join(s.dir, id+".json")
+	if err := os.Remove(path); err != nil {
+		return fmt.Errorf("delete session: %w", err)
+	}
+	return nil
 }

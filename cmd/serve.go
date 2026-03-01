@@ -10,8 +10,10 @@ import (
 )
 
 var (
-	serveAddr string
-	serveKey  string
+	serveAddr       string
+	serveKey        string
+	serveWhisperURL string
+	servePiperModel string
 )
 
 var serveCmd = &cobra.Command{
@@ -24,6 +26,8 @@ var serveCmd = &cobra.Command{
 func init() {
 	serveCmd.Flags().StringVar(&serveAddr, "addr", "0.0.0.0:8400", "Listen address")
 	serveCmd.Flags().StringVar(&serveKey, "key", "", "Master registration key (or LOCALFRESH_MASTER_KEY env)")
+	serveCmd.Flags().StringVar(&serveWhisperURL, "whisper-url", "", "Whisper.cpp server URL for speech-to-text (e.g. http://127.0.0.1:8081)")
+	serveCmd.Flags().StringVar(&servePiperModel, "piper-model", "", "Piper TTS model path for text-to-speech")
 	rootCmd.AddCommand(serveCmd)
 }
 
@@ -36,6 +40,11 @@ func runServe(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("master key required: use --key or set LOCALFRESH_MASTER_KEY")
 	}
 
-	srv := server.New(serveAddr, key)
+	audioCfg := server.AudioConfig{
+		WhisperURL: serveWhisperURL,
+		PiperModel: servePiperModel,
+	}
+
+	srv := server.NewWithAudio(serveAddr, key, audioCfg)
 	return srv.Run()
 }

@@ -1,6 +1,10 @@
 package render
 
-import "fmt"
+import (
+	"fmt"
+
+	"github.com/charmbracelet/lipgloss"
+)
 
 // Lemon mascot states using Braille dot art.
 const (
@@ -12,13 +16,32 @@ const (
 		"     ⠻⣿⣦⣤⣴⣿⠟\n" +
 		"      ⠈⠛⠿⠿⠛⠁\n"
 
-	LemonThinking = "" +
+	LemonThinking1 = "" +
 		"        ⣠⠤⡀  ⠄⠂⠁\n" +
 		"      ⢀⣶⣿⣿⣶⡀\n" +
 		"     ⣾⣿⠃⠀⠘⣿⣷\n" +
 		"     ⣿⣿⠀⠀⠀⣿⣿\n" +
 		"     ⠻⣿⣦⠤⣴⣿⠟\n" +
 		"      ⠈⠛⠿⠿⠛⠁\n"
+
+	LemonThinking2 = "" +
+		"        ⣠⠤⡀  ⠂⠁⠄\n" +
+		"      ⢀⣶⣿⣿⣶⡀\n" +
+		"     ⣾⣿⠃⠀⠘⣿⣷\n" +
+		"     ⣿⣿⠀⠀⠀⣿⣿\n" +
+		"     ⠻⣿⣦⠤⣴⣿⠟\n" +
+		"      ⠈⠛⠿⠿⠛⠁\n"
+
+	LemonThinking3 = "" +
+		"        ⣠⠤⡀  ⠁⠄⠂\n" +
+		"      ⢀⣶⣿⣿⣶⡀\n" +
+		"     ⣾⣿⠃⠀⠘⣿⣷\n" +
+		"     ⣿⣿⠀⠀⠀⣿⣿\n" +
+		"     ⠻⣿⣦⠤⣴⣿⠟\n" +
+		"      ⠈⠛⠿⠿⠛⠁\n"
+
+	// LemonThinking is kept for backward compatibility (alias for frame 1).
+	LemonThinking = LemonThinking1
 
 	LemonSpeaking = "" +
 		"        ⣠⠤⡀\n" +
@@ -29,20 +52,36 @@ const (
 		"      ⠈⠛⠿⠿⠛⠁\n"
 )
 
-// PrintLemonColored prints the lemon with the leaf in green and body in yellow.
-func PrintLemonColored(art string) {
-	green := "\033[32m"
-	yellow := "\033[33m"
-	reset := "\033[0m"
+// LemonThinkingFrames returns all thinking animation frames.
+func LemonThinkingFrames() []string {
+	return []string{LemonThinking1, LemonThinking2, LemonThinking3}
+}
 
+var (
+	mascotLeafStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("2"))
+	mascotBodyStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("3"))
+)
+
+// RenderMascot renders mascot art with lipgloss styles (green leaf, yellow body).
+func RenderMascot(art string) string {
 	lines := splitLines(art)
+	var result string
 	for i, line := range lines {
+		if i > 0 {
+			result += "\n"
+		}
 		if i == 0 {
-			fmt.Println(green + line + reset)
+			result += mascotLeafStyle.Render(line)
 		} else {
-			fmt.Println(yellow + line + reset)
+			result += mascotBodyStyle.Render(line)
 		}
 	}
+	return result
+}
+
+// PrintLemonColored prints the lemon with the leaf in green and body in yellow.
+func PrintLemonColored(art string) {
+	fmt.Println(RenderMascot(art))
 }
 
 func splitLines(s string) []string {

@@ -1,0 +1,377 @@
+package tui
+
+import (
+	"strings"
+
+	"github.com/charmbracelet/bubbles/textinput"
+	"github.com/charmbracelet/bubbles/viewport"
+	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
+
+	"github.com/rabidclock/localfreshllm/backend"
+	"github.com/rabidclock/localfreshllm/render"
+	"github.com/rabidclock/localfreshllm/service"
+	"github.com/rabidclock/localfreshllm/session"
+)
+
+type state int
+
+const (
+	stateIdle state = iota
+	stateStreaming
+	stateModelPick
+)
+
+// Config holds dependencies injected into the TUI model.
+type Config struct {
+	Backend      backend.Backend
+	ChatService  *service.ChatService
+	Store        *session.Store
+	Session      *session.Session
+	UserConfig   *session.Config
+	Model        string
+	SystemPrompt string
+	EnableTools  bool
+	RenderMD     bool
+	IsClient     bool
+}
+
+// Model is the top-level Bubble Tea model.
+type Model struct {
+	cfg Config
+
+	state    state
+	viewport viewport.Model
+	input    textinput.Model
+	mascot   MascotModel
+
+	messages  []chatMessage
+	streamBuf strings.Builder
+	streamCh  chan chatEvent
+
+	width  int
+	height int
+
+	history []string
+	histIdx int
+	histTmp string
+
+	err error
+}
+
+type chatMessage struct {
+	role    string
+	content string
+}
+
+const (
+	headerHeight = 8
+	inputHeight  = 3
+)
+
+// New creates a new TUI model with the given config.
+func New(cfg Config) Model {
+	ti := textinput.New()
+	ti.Placeholder = "Type a message..."
+	ti.Focus()
+	ti.CharLimit = 0
+	ti.Width = 80
+	ti.Prompt = render.UserStyle.Render("You: ")
+
+	vp := viewport.New(80, 20)
+	vp.SetContent("")
+
+	m := Model{
+		cfg:      cfg,
+		state:    stateIdle,
+		input:    ti,
+		viewport: vp,
+		mascot:   NewMascotModel(),
+		history:  loadHistory(),
+		histIdx:  -1,
+	}
+
+	// Restore session messages into chat display.
+	if cfg.Session != nil {
+		for _, msg := range cfg.Session.Messages {
+			if msg.Role == "user" || msg.Role == "assistant" {
+				m.messages = append(m.messages, chatMessage{role: msg.Role, content: msg.Content})
+			}
+		}
+	}
+
+	return m
+}
+
+func (m Model) Init() tea.Cmd {
+	return tea.Batch(textinput.Blink, mascotTick())
+}
+
+func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	var cmds []tea.Cmd
+
+	switch msg := msg.(type) {
+	case tea.WindowSizeMsg:
+		m.width = msg.Width
+		m.height = msg.Height
+		m.viewport.Width = msg.Width
+		m.viewport.Height = msg.Height - headerHeight - inputHeight
+		m.input.Width = msg.Width - lipgloss.Width(m.input.Prompt) - 1
+		m.rebuildViewport()
+		return m, nil
+
+	case tea.KeyMsg:
+		return m.handleKey(msg)
+
+	case mascotTickMsg:
+		var cmd tea.Cmd
+		m.mascot, cmd = m.mascot.Update(msg)
+		return m, cmd
+
+	case tokenMsg:
+		m.streamBuf.WriteString(string(msg))
+		m.rebuildViewport()
+		return m, waitForEvent(m.streamCh)
+
+	case toolCallMsg:
+		m.messages = append(m.messages, chatMessage{
+			role:    "system",
+			content: "[tool: " + msg.name + "]",
+		})
+		m.rebuildViewport()
+		return m, waitForEvent(m.streamCh)
+
+	case doneMsg:
+		text := m.streamBuf.String()
+		if m.cfg.RenderMD && text != "" {
+			text = strings.TrimSpace(render.RenderMarkdown(text))
+		}
+		if text != "" {
+			m.messages = append(m.messages, chatMessage{role: "assistant", content: text})
+		}
+
+		// Save intermediate messages to session.
+		if m.cfg.Session != nil {
+			for _, nm := range msg.newMsgs {
+				m.cfg.Session.Messages = append(m.cfg.Session.Messages, nm)
+			}
+			if m.streamBuf.String() != "" {
+				m.cfg.Session.AddMessage("assistant", m.streamBuf.String())
+			}
+			if m.cfg.Store != nil {
+				m.cfg.Store.Save(m.cfg.Session)
+			}
+		}
+
+		m.streamBuf.Reset()
+		m.state = stateIdle
+		m.mascot.state = mascotIdle
+		m.input.Focus()
+		m.rebuildViewport()
+		return m, textinput.Blink
+
+	case errorMsg:
+		m.streamBuf.Reset()
+		m.state = stateIdle
+		m.mascot.state = mascotIdle
+		m.err = msg.err
+		m.messages = append(m.messages, chatMessage{
+			role:    "error",
+			content: msg.err.Error(),
+		})
+		m.input.Focus()
+		m.rebuildViewport()
+		return m, textinput.Blink
+
+	case slashResultMsg:
+		if msg.quit {
+			return m, tea.Quit
+		}
+		if msg.info != "" {
+			m.messages = append(m.messages, chatMessage{role: "system", content: msg.info})
+		}
+		if msg.modelPick {
+			m.state = stateModelPick
+		}
+		m.rebuildViewport()
+		return m, nil
+	}
+
+	// Update sub-components.
+	if m.state == stateIdle || m.state == stateModelPick {
+		var cmd tea.Cmd
+		m.input, cmd = m.input.Update(msg)
+		cmds = append(cmds, cmd)
+	}
+
+	return m, tea.Batch(cmds...)
+}
+
+func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.Type {
+	case tea.KeyCtrlC:
+		return m, tea.Quit
+
+	case tea.KeyUp:
+		if m.state == stateIdle && len(m.history) > 0 {
+			if m.histIdx == -1 {
+				m.histTmp = m.input.Value()
+				m.histIdx = len(m.history) - 1
+			} else if m.histIdx > 0 {
+				m.histIdx--
+			}
+			m.input.SetValue(m.history[m.histIdx])
+			m.input.CursorEnd()
+			return m, nil
+		}
+
+	case tea.KeyDown:
+		if m.state == stateIdle && m.histIdx >= 0 {
+			m.histIdx++
+			if m.histIdx >= len(m.history) {
+				m.histIdx = -1
+				m.input.SetValue(m.histTmp)
+			} else {
+				m.input.SetValue(m.history[m.histIdx])
+			}
+			m.input.CursorEnd()
+			return m, nil
+		}
+
+	case tea.KeyPgUp:
+		m.viewport.HalfViewUp()
+		return m, nil
+
+	case tea.KeyPgDown:
+		m.viewport.HalfViewDown()
+		return m, nil
+
+	case tea.KeyEnter:
+		return m.handleSubmit()
+	}
+
+	// Forward to text input.
+	if m.state == stateIdle || m.state == stateModelPick {
+		var cmd tea.Cmd
+		m.input, cmd = m.input.Update(msg)
+		return m, cmd
+	}
+	return m, nil
+}
+
+func (m *Model) handleSubmit() (tea.Model, tea.Cmd) {
+	input := strings.TrimSpace(m.input.Value())
+	if input == "" {
+		return m, nil
+	}
+
+	m.input.SetValue("")
+	m.histIdx = -1
+	m.err = nil
+
+	// Model picker mode.
+	if m.state == stateModelPick {
+		result := handleModelPickInput(input, &m.cfg)
+		m.state = stateIdle
+		if result.info != "" {
+			m.messages = append(m.messages, chatMessage{role: "system", content: result.info})
+		}
+		m.rebuildViewport()
+		return m, nil
+	}
+
+	// Slash commands.
+	if strings.HasPrefix(input, "/") {
+		result := handleSlash(input, &m.cfg)
+		msg := slashResultMsg(result)
+		return m.Update(msg)
+	}
+
+	// Save to input history.
+	m.history = append(m.history, input)
+	saveHistory(m.history)
+
+	// Add user message.
+	m.messages = append(m.messages, chatMessage{role: "user", content: input})
+	if m.cfg.Session != nil {
+		m.cfg.Session.AddMessage("user", input)
+	}
+
+	// Start streaming.
+	m.state = stateStreaming
+	m.mascot.state = mascotThinking
+	m.input.Blur()
+	m.rebuildViewport()
+
+	ch := make(chan chatEvent, 64)
+	m.streamCh = ch
+
+	var messages []backend.Message
+	if m.cfg.IsClient {
+		// Client mode: send only user messages, server has session.
+		messages = []backend.Message{{Role: "user", Content: input}}
+	} else if m.cfg.Session != nil {
+		messages = m.cfg.Session.Messages
+	}
+
+	return m, tea.Batch(
+		startChat(m.cfg, messages, ch),
+		waitForEvent(ch),
+	)
+}
+
+func (m *Model) rebuildViewport() {
+	content := buildContent(m.messages, m.streamBuf.String(), m.cfg.Model, m.width)
+	m.viewport.SetContent(content)
+	m.viewport.GotoBottom()
+}
+
+func (m Model) View() string {
+	if m.width == 0 {
+		return "Loading..."
+	}
+
+	// Header: mascot + status.
+	mascotView := m.mascot.View()
+	statusLine := render.ModelStyle.Render(m.cfg.Model)
+	if m.state == stateStreaming {
+		statusLine += render.DimStyle.Render("  streaming...")
+	}
+	if m.cfg.IsClient {
+		statusLine += render.DimStyle.Render("  (remote)")
+	}
+	toolsStatus := "on"
+	if !m.cfg.EnableTools {
+		toolsStatus = "off"
+	}
+	statusLine += "\n" + render.DimStyle.Render("tools: "+toolsStatus)
+	statusLine += "\n" + render.DimStyle.Render("/help for commands")
+
+	mascotWidth := lipgloss.Width(mascotView)
+	statusStyle := lipgloss.NewStyle().
+		Width(m.width - mascotWidth - 2).
+		PaddingLeft(2)
+
+	header := lipgloss.JoinHorizontal(lipgloss.Top, mascotView, statusStyle.Render(statusLine))
+
+	headerStyle := lipgloss.NewStyle().
+		Height(headerHeight).
+		MaxHeight(headerHeight)
+
+	// Dividers.
+	divider := render.DimStyle.Render(strings.Repeat("─", m.width))
+
+	// Input area.
+	inputView := m.input.View()
+	if m.state == stateStreaming {
+		inputView = render.DimStyle.Render("  waiting for response...")
+	}
+
+	return lipgloss.JoinVertical(lipgloss.Left,
+		headerStyle.Render(header),
+		divider,
+		m.viewport.View(),
+		divider,
+		inputView,
+	)
+}

@@ -497,6 +497,13 @@ func (m *Model) handleSubmit() (tea.Model, tea.Cmd) {
 		return m.Update(msg)
 	}
 
+	// Natural language timer detection (intercept before sending to LLM).
+	if t := parseNaturalTimer(input); t != nil {
+		result := slashResult{timerAdd: t}
+		msg := slashResultMsg(result)
+		return m.Update(msg)
+	}
+
 	// Save to input history.
 	m.history = append(m.history, input)
 	saveHistory(m.history)

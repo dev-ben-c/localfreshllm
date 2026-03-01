@@ -191,6 +191,58 @@ func TestHandleTimerSlash(t *testing.T) {
 	}
 }
 
+func TestParseNaturalTimer(t *testing.T) {
+	tests := []struct {
+		input    string
+		wantDur  time.Duration
+		wantName string
+	}{
+		{"set a timer for 5 minutes", 5 * time.Minute, "timer"},
+		{"set a timer for one minute", 1 * time.Minute, "timer"},
+		{"set a timer for 1 minute", 1 * time.Minute, "timer"},
+		{"set timer for 30 seconds", 30 * time.Second, "timer"},
+		{"timer for 10 minutes", 10 * time.Minute, "timer"},
+		{"set a timer for 1 hour", 1 * time.Hour, "timer"},
+		{"set a timer for two hours", 2 * time.Hour, "timer"},
+		{"set a timer for half an hour", 30 * time.Minute, "timer"},
+		{"set a timer for 5 minutes called eggs", 5 * time.Minute, "eggs"},
+		{"set a timer for 90 seconds named laundry", 90 * time.Second, "laundry"},
+		{"set a 5 minute timer", 5 * time.Minute, "timer"},
+		{"set a ten minute timer", 10 * time.Minute, "timer"},
+		{"set a 30 second timer", 30 * time.Second, "timer"},
+		{"set a 5 minute timer called pasta", 5 * time.Minute, "pasta"},
+		{"set a timer for fifteen minutes", 15 * time.Minute, "timer"},
+		{"Set a timer for 1 minute.", 1 * time.Minute, "timer"},
+	}
+
+	for _, tt := range tests {
+		timer := parseNaturalTimer(tt.input)
+		if timer == nil {
+			t.Errorf("parseNaturalTimer(%q) = nil, want duration %v", tt.input, tt.wantDur)
+			continue
+		}
+		if timer.Duration != tt.wantDur {
+			t.Errorf("parseNaturalTimer(%q).Duration = %v, want %v", tt.input, timer.Duration, tt.wantDur)
+		}
+		if timer.Name != tt.wantName {
+			t.Errorf("parseNaturalTimer(%q).Name = %q, want %q", tt.input, timer.Name, tt.wantName)
+		}
+	}
+
+	// These should NOT match.
+	noMatch := []string{
+		"what time is it",
+		"hello world",
+		"how do I set a timer on my phone",
+		"the timer went off",
+	}
+	for _, input := range noMatch {
+		if timer := parseNaturalTimer(input); timer != nil {
+			t.Errorf("parseNaturalTimer(%q) = %+v, want nil", input, timer)
+		}
+	}
+}
+
 func containsAll(s string, subs ...string) bool {
 	for _, sub := range subs {
 		found := false

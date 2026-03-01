@@ -55,29 +55,54 @@ func transcribeVoiceSegment(cfg Config, pcm []byte) tea.Cmd {
 	}
 }
 
+// Greeting prefixes that can precede the wake word (e.g. "hey cedric", "okay cedric").
+var wakePrefixes = []string{
+	"hey", "hey,",
+	"okay", "okay,",
+	"ok", "ok,",
+	"yo", "yo,",
+	"hi", "hi,",
+	"hello", "hello,",
+}
+
 // extractAfterWakeWord checks if the text starts with the wake word
-// and returns the remaining text. Case-insensitive.
+// (optionally preceded by a greeting) and returns the remaining text.
+// Case-insensitive. Matches: "cedric ...", "hey cedric ...", "okay, cedric ...", etc.
 func extractAfterWakeWord(text string) (string, bool) {
 	lower := strings.ToLower(strings.TrimSpace(text))
 
-	// Check for "lemon" or "lemon," at the start.
-	prefixes := []string{
-		wakeWord + " ",
-		wakeWord + ", ",
-		wakeWord + ". ",
-		wakeWord + "! ",
-		wakeWord + "? ",
-	}
-
-	for _, prefix := range prefixes {
-		if strings.HasPrefix(lower, prefix) {
-			return strings.TrimSpace(text[len(prefix):]), true
+	// Try with greeting prefix first (e.g. "hey cedric, what time is it").
+	for _, gp := range wakePrefixes {
+		full := gp + " " + wakeWord
+		if afterWake, ok := matchWakePrefix(lower, text, full); ok {
+			return afterWake, true
 		}
 	}
 
-	// Check if it's just the wake word by itself (with optional punctuation).
+	// Try bare wake word (e.g. "cedric, what time is it").
+	if afterWake, ok := matchWakePrefix(lower, text, wakeWord); ok {
+		return afterWake, true
+	}
+
+	return "", false
+}
+
+// matchWakePrefix checks if lower starts with prefix followed by punctuation/space
+// or is exactly the prefix (with optional trailing punctuation).
+// Returns the remaining original-case text after the match.
+func matchWakePrefix(lower, original string, prefix string) (string, bool) {
+	// "prefix " / "prefix, " / "prefix. " etc.
+	separators := []string{" ", ", ", ". ", "! ", "? "}
+	for _, sep := range separators {
+		full := prefix + sep
+		if strings.HasPrefix(lower, full) {
+			return strings.TrimSpace(original[len(full):]), true
+		}
+	}
+
+	// Exact match with optional trailing punctuation (wake word alone).
 	trimmed := strings.TrimRight(lower, ".,!? ")
-	if trimmed == wakeWord {
+	if trimmed == prefix {
 		return "", true
 	}
 

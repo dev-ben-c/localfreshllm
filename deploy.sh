@@ -228,9 +228,7 @@ print_registration_cmd() {
     print_header "Device Registration"
     print_info "To register a device from another machine, run:"
     echo
-    echo -e "  curl -X POST http://${ip}:8400/v1/devices/register \\"
-    echo -e "    -H 'Content-Type: application/json' \\"
-    echo -e "    -d '{\"name\":\"<device-name>\",\"registration_key\":\"${master_key}\"}'"
+    echo "  curl -X POST http://${ip}:8400/v1/devices/register -H 'Content-Type: application/json' -d '{\"name\":\"<device-name>\",\"registration_key\":\"${master_key}\"}'"
     echo
     print_info "The response contains the API key for that device."
 }
@@ -285,30 +283,37 @@ simple_client() {
     install_binary
     create_data_dir
 
-    # Server URL
-    echo
-    read -rp "  Server URL (e.g. http://192.168.0.69:8400): " server_url
-    server_url="${server_url%/}"
-    if [[ -z "$server_url" ]]; then
-        print_err "Server URL cannot be empty"
-        return 1
-    fi
+    # Server URL (retry loop)
+    local server_url=""
+    while true; do
+        echo
+        read -rp "  Server URL (e.g. http://192.168.0.69:8400): " server_url
+        server_url="${server_url%/}"
+        if [[ -z "$server_url" ]]; then
+            print_err "Server URL cannot be empty"
+            continue
+        fi
 
-    print_step "Checking server health..."
-    if curl -sf "${server_url}/health" > /dev/null 2>&1; then
-        print_ok "Server is reachable"
-    else
-        print_warn "Could not reach ${server_url}/health — continuing anyway"
-    fi
+        print_step "Checking server health..."
+        if curl -sf "${server_url}/health" > /dev/null 2>&1; then
+            print_ok "Server is reachable"
+            break
+        else
+            print_warn "Could not reach ${server_url}/health"
+            read -rp "  Retry? [Y/n] " retry
+            if [[ "${retry,,}" == "n" ]]; then
+                print_warn "Continuing without server validation"
+                break
+            fi
+        fi
+    done
 
     # Registration instructions
     echo
     print_header "Device Registration"
     print_info "Register this device on the server:"
     echo
-    echo -e "  curl -X POST ${server_url}/v1/devices/register \\"
-    echo -e "    -H 'Content-Type: application/json' \\"
-    echo -e "    -d '{\"name\":\"$(hostname)\",\"registration_key\":\"<master-key>\"}'"
+    echo "  curl -X POST ${server_url}/v1/devices/register -H 'Content-Type: application/json' -d '{\"name\":\"$(hostname)\",\"registration_key\":\"<master-key>\"}'"
     echo
     print_info "Copy the \"token\" from the response, then enter it below."
     echo

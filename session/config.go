@@ -9,6 +9,7 @@ import (
 // Config holds persistent user preferences.
 type Config struct {
 	Location string `json:"location,omitempty"`
+	Model    string `json:"model,omitempty"`
 }
 
 func configPath() string {

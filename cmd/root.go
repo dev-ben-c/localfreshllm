@@ -22,6 +22,7 @@ import (
 	"github.com/rabidclock/localfreshllm/systemprompt"
 
 	"github.com/dev-ben-c/localfreshsearch/tools"
+	"github.com/dev-ben-c/localfreshsearch/weather"
 )
 
 var (
@@ -73,6 +74,12 @@ func run(cmd *cobra.Command, args []string) error {
 	}
 
 	cfg = session.LoadConfig()
+
+	// Use saved default model unless --model was explicitly provided.
+	if !cmd.Flags().Changed("model") && cfg.Model != "" {
+		flagModel = cfg.Model
+	}
+
 	sysPrompt := systemprompt.Get(flagSystem, flagPersona)
 	b := backend.ForModel(flagModel)
 	if err := b.Validate(); err != nil {
@@ -453,7 +460,11 @@ func handleSlashCommand(input string, sess *session.Session, store *session.Stor
 			flagModel = chosen
 			*b = newBackend
 			sess.Model = flagModel
-			render.Infof("Switched to %s", flagModel)
+			cfg.Model = flagModel
+			if err := cfg.Save(); err != nil {
+				render.Errorf("Failed to save config: %v", err)
+			}
+			render.Infof("Switched to %s (saved as default)", flagModel)
 		}
 
 	case "/clear":
@@ -481,6 +492,8 @@ func handleSlashCommand(input string, sess *session.Session, store *session.Stor
 				render.Errorf("Failed to save config: %v", err)
 			} else {
 				render.Infof("Location set to %s", loc)
+				// Prefetch weather for the new location in the background.
+				weather.NewClient().Prefetch(loc)
 			}
 		} else if cfg.Location != "" {
 			render.Infof("Current location: %s", cfg.Location)

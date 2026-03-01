@@ -231,6 +231,7 @@ func runClientOneShot(b backend.Backend, sysPrompt string, args []string) error 
 func runClientREPL(b backend.Backend, sysPrompt string) error {
 	var messages []backend.Message
 
+	render.PrintLemonColored(render.LemonIdle)
 	render.Infof("localfreshllm (remote) — model: %s — /help for commands, /quit to exit", flagModel)
 	fmt.Println()
 
@@ -495,6 +496,7 @@ func runREPL(b backend.Backend, sysPrompt string, store *session.Store, sess *se
 		sess = session.NewSession(id, flagModel)
 	}
 
+	render.PrintLemonColored(render.LemonIdle)
 	render.Infof("localfreshllm — model: %s — /help for commands, /quit to exit", flagModel)
 	fmt.Println()
 

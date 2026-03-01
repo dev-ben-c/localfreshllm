@@ -1,6 +1,8 @@
 # localfreshllm
 
-CLI and server for talking to local Ollama models and Anthropic Claude from the terminal. Full-screen TUI with animated mascot, streaming output, session history, pipe support, markdown rendering, multi-device server mode with tool support, and voice I/O.
+A terminal-native LLM chat application with a full-screen TUI, multi-model support, tool use, and voice I/O. Talk to local [Ollama](https://ollama.com/) models or [Anthropic Claude](https://www.anthropic.com/) from the command line — interactively, in one-shot mode, or piped from stdin.
+
+The interactive TUI features an animated braille-art lemon mascot, scrollable chat history, real-time streaming, markdown rendering, and slash commands for model switching, tool toggling, and more. A built-in server mode enables multi-device access with per-device sessions, bearer auth, and SSE streaming.
 
 **Zero CGO, pure Go.** Single binary cross-compiles to `linux/arm64` for Raspberry Pi deployment.
 
@@ -75,11 +77,12 @@ localfreshllm --resume abc1
 
 The interactive mode launches a full-screen Bubble Tea TUI with:
 
-- **Animated lemon mascot** — idle, thinking (rotating dots), and speaking states
+- **Animated lemon mascot** — braille-art lemon with expressive face (idle, thinking, speaking states)
 - **Scrollable chat viewport** — PgUp/PgDn to browse history
 - **Text input with history** — Up/Down arrow to recall previous messages
 - **Streaming responses** — tokens appear in real-time, markdown rendered on completion
-- **Slash commands** — model switching, tool toggling, and more
+- **Slash commands** — model switching, tool toggling, TTS, and more
+- **Text-to-speech** — toggle with `/tts`, responses are spoken aloud via Piper
 
 ```
 ┌─────────────────────────────────────────┐
@@ -104,8 +107,8 @@ The interactive mode launches a full-screen Bubble Tea TUI with:
 | `/history` | Session history info |
 | `/location <city>` | Set location for weather tools |
 | `/tools` | Toggle web search tools |
-| `/voice` | Voice input info |
-| `/tts` | Text-to-speech info |
+| `/tts` | Toggle text-to-speech |
+| `/voice` | Voice input (Ctrl+Space / F5) |
 | `/quit` | Exit |
 
 ### Navigation
@@ -116,6 +119,17 @@ The interactive mode launches a full-screen Bubble Tea TUI with:
 | Up / Down | Recall input history |
 | Ctrl+C | Quit |
 | Ctrl+Space / F5 | Push-to-talk toggle (when mic enabled) |
+
+## Tools
+
+When tools are enabled (default), the LLM can use:
+
+- **Web search** — search the web via [SearXNG](https://github.com/searxng/searxng) and return titles, URLs, and snippets
+- **Page reader** — fetch and extract text content from any URL via [Playwright](https://playwright.dev/)
+- **Weather** — current conditions and forecast from [wttr.in](https://wttr.in/)
+- **Date/time** — current local date, time, and timezone
+
+Tools work with both Ollama and Claude models. Models that don't support tool calling automatically fall back to plain chat.
 
 ## Server Mode
 
@@ -128,7 +142,7 @@ localfreshllm serve --addr 0.0.0.0:8400
 # With audio services enabled
 localfreshllm serve --addr 0.0.0.0:8400 \
   --whisper-url http://127.0.0.1:8081 \
-  --piper-model /path/to/en_US-lessac-medium.onnx
+  --piper-model /opt/piper/models/en_US-kristin-medium.onnx
 
 # Register a device
 curl -X POST http://<server>:8400/v1/devices/register \
@@ -161,12 +175,31 @@ Audio endpoints return 501 if `--whisper-url` / `--piper-model` are not set.
 
 ## Audio / Voice I/O
 
-Voice input and output are split across client and server:
+Voice input and output are split across client and server to keep the client lightweight:
 
-- **Server**: Whisper.cpp (CUDA-accelerated STT) and Piper (CPU TTS) run as sidecars
+- **Server**: [Whisper.cpp](https://github.com/ggerganov/whisper.cpp) (CUDA-accelerated STT) and [Piper](https://github.com/rhasspy/piper) (CPU TTS) run as sidecars
 - **Client**: Mic capture via `parec`/`arecord` and playback via `paplay`/`aplay` — no CGO, just subprocess calls to standard Linux audio tools
+- **Local TTS**: If Piper is installed locally (at `/opt/piper/`), TTS runs directly on the client without needing a server
 
-This keeps the client binary lightweight enough for a Raspberry Pi while offloading GPU-heavy inference to the server.
+### Piper TTS Setup
+
+```bash
+# Download and extract piper
+sudo mkdir -p /opt/piper/models
+curl -sL https://github.com/rhasspy/piper/releases/download/2023.11.14-2/piper_linux_x86_64.tar.gz | sudo tar xz -C /opt/piper --strip-components=1
+
+# Download a voice model (see https://rhasspy.github.io/piper-samples/ for options)
+sudo curl -sL -o /opt/piper/models/en_US-kristin-medium.onnx \
+  https://huggingface.co/rhasspy/piper-voices/resolve/v1.0.0/en/en_US/kristin/medium/en_US-kristin-medium.onnx
+sudo curl -sL -o /opt/piper/models/en_US-kristin-medium.onnx.json \
+  https://huggingface.co/rhasspy/piper-voices/resolve/v1.0.0/en/en_US/kristin/medium/en_US-kristin-medium.onnx.json
+
+# Test it
+echo "Hello world" | LD_LIBRARY_PATH=/opt/piper /opt/piper/piper \
+  --model /opt/piper/models/en_US-kristin-medium.onnx --output_file test.wav --quiet
+```
+
+The TUI auto-detects Piper at `/opt/piper/models/` on startup. Toggle TTS in the TUI with `/tts`.
 
 ## Flags
 
@@ -203,6 +236,7 @@ This keeps the client binary lightweight enough for a Raspberry Pi while offload
 │  └──────────┘  └──────────┘  └────────────────────────┘ │
 │  Audio: parec/arecord subprocess → raw PCM upload       │
 │  Audio: WAV download → paplay/aplay subprocess          │
+│  Local TTS: piper subprocess (if installed)             │
 └─────────────────────┬───────────────────────────────────┘
                       │ SSE + REST
 ┌─ Server (GPU host) ─┴──────────────────────────────────┐
@@ -236,12 +270,16 @@ Conversations are saved as JSON in `~/.local/share/localfreshllm/history/` (resp
 Built with these excellent open-source projects:
 
 - [Ollama](https://ollama.com/) — local LLM inference
-- [Cobra](https://github.com/spf13/cobra) — CLI framework
+- [Anthropic API](https://docs.anthropic.com/) — Claude model access
 - [Bubble Tea](https://github.com/charmbracelet/bubbletea) — terminal UI framework
 - [Bubbles](https://github.com/charmbracelet/bubbles) — TUI components (viewport, text input)
 - [Glamour](https://github.com/charmbracelet/glamour) — terminal markdown rendering
 - [Lipgloss](https://github.com/charmbracelet/lipgloss) — terminal styling
+- [Cobra](https://github.com/spf13/cobra) — CLI framework
 - [Piper](https://github.com/rhasspy/piper) — fast local neural text-to-speech
-- [Playwright for Go](https://github.com/playwright-community/playwright-go) — web scraping for search tools
+- [Whisper.cpp](https://github.com/ggerganov/whisper.cpp) — speech-to-text inference
+- [SearXNG](https://github.com/searxng/searxng) — metasearch engine for web search tools
+- [wttr.in](https://github.com/chubin/wttr.in) — weather data API
+- [Playwright for Go](https://github.com/playwright-community/playwright-go) — web page reading for search tools
 - [go-isatty](https://github.com/mattn/go-isatty) — terminal detection
 - [uuid](https://github.com/google/uuid) — session and device IDs

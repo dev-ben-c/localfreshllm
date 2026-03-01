@@ -18,7 +18,8 @@ type slashResult struct {
 	quit      bool
 	info      string
 	modelPick bool
-	ttsToggle bool
+	ttsToggle   bool
+	voiceToggle bool
 
 	// Timer actions.
 	timerAdd    *Timer // Non-nil to create a new timer.
@@ -63,7 +64,7 @@ func handleSlash(input string, cfg *Config) slashResult {
 		return handleLocation(parts[1:], cfg)
 
 	case "/voice":
-		return slashResult{info: "Voice toggle is handled via Ctrl+Space or F5 (requires client mode with --server)"}
+		return slashResult{voiceToggle: true}
 
 	case "/tts":
 		return slashResult{ttsToggle: true}
@@ -243,7 +244,7 @@ func helpText() string {
 		"  /clear         - clear conversation",
 		"  /history       - session history info",
 		"  /tools         - toggle web search tools",
-		"  /voice         - voice input info (Ctrl+Space / F5)",
+		"  /voice         - toggle voice input (Ctrl+Space to record)",
 		"  /tts           - toggle text-to-speech",
 		"  /timer <dur>   - start a timer (e.g. 5m, 1h30m)",
 		"  /timer cancel  - cancel a timer by number",

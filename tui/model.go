@@ -10,6 +10,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
+	"github.com/rabidclock/localfreshllm/audio/capture"
 	"github.com/rabidclock/localfreshllm/audio/playback"
 	"github.com/rabidclock/localfreshllm/backend"
 	"github.com/rabidclock/localfreshllm/render"
@@ -38,6 +39,7 @@ type Config struct {
 	RenderMD     bool
 	IsClient     bool
 	PiperModel   string
+	WhisperURL   string
 }
 
 // Model is the top-level Bubble Tea model.
@@ -62,6 +64,10 @@ type Model struct {
 
 	ttsEnabled bool
 	player     *playback.Player
+
+	micEnabled bool
+	recording  bool
+	recorder   *capture.Recorder
 
 	timers       []Timer
 	timerTicking bool
@@ -101,6 +107,7 @@ func New(cfg Config) Model {
 		history:   loadHistory(),
 		histIdx:   -1,
 		player:    &playback.Player{},
+		recorder:  &capture.Recorder{},
 	}
 
 	// Restore session messages into chat display.
@@ -232,6 +239,43 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case audioRecordDoneMsg:
+		m.recording = false
+		if msg.err != nil {
+			m.messages = append(m.messages, chatMessage{
+				role:    "error",
+				content: "Recording: " + msg.err.Error(),
+			})
+			m.rebuildViewport()
+			return m, nil
+		}
+		if len(msg.pcm) == 0 {
+			return m, nil
+		}
+		m.messages = append(m.messages, chatMessage{role: "system", content: "Transcribing..."})
+		m.rebuildViewport()
+		return m, transcribeAudio(m.cfg, msg.pcm)
+
+	case audioTranscribeDoneMsg:
+		// Remove "Transcribing..." message.
+		if len(m.messages) > 0 && m.messages[len(m.messages)-1].content == "Transcribing..." {
+			m.messages = m.messages[:len(m.messages)-1]
+		}
+		if msg.err != nil {
+			m.messages = append(m.messages, chatMessage{
+				role:    "error",
+				content: "Transcribe: " + msg.err.Error(),
+			})
+			m.rebuildViewport()
+			return m, nil
+		}
+		if msg.text != "" {
+			m.input.SetValue(strings.TrimSpace(msg.text))
+			m.input.CursorEnd()
+		}
+		m.rebuildViewport()
+		return m, nil
+
 	case audioPlayDoneMsg:
 		if msg.err != nil {
 			m.messages = append(m.messages, chatMessage{
@@ -253,6 +297,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				status = "disabled"
 			}
 			m.messages = append(m.messages, chatMessage{role: "system", content: "TTS " + status})
+		}
+		if msg.voiceToggle {
+			m.micEnabled = !m.micEnabled
+			status := "enabled (Ctrl+Space to record)"
+			if !m.micEnabled {
+				status = "disabled"
+			}
+			m.messages = append(m.messages, chatMessage{role: "system", content: "Voice input " + status})
 		}
 		// Timer actions.
 		if msg.timerAdd != nil {
@@ -361,6 +413,18 @@ func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.viewport.HalfViewDown()
 		return m, nil
 
+	case tea.KeyCtrlAt, tea.KeyF5:
+		if m.micEnabled {
+			if m.recording {
+				m.recording = false
+				return m, stopRecording(m.recorder)
+			}
+			m.recording = true
+			m.rebuildViewport()
+			return m, startRecording(m.recorder)
+		}
+		return m, nil
+
 	case tea.KeyEnter:
 		return m.handleSubmit()
 	}
@@ -463,7 +527,11 @@ func (m Model) View() string {
 	if m.ttsEnabled {
 		ttsStatus = "on"
 	}
-	statusLine += "\n" + render.DimStyle.Render("tools: "+toolsStatus+"  tts: "+ttsStatus)
+	micStatus := "off"
+	if m.micEnabled {
+		micStatus = "on"
+	}
+	statusLine += "\n" + render.DimStyle.Render("tools: "+toolsStatus+"  tts: "+ttsStatus+"  mic: "+micStatus)
 	if ts := renderTimerStatus(m.timers); ts != "" {
 		statusLine += "\n" + render.TimerStyle.Render(ts)
 	}
@@ -485,7 +553,9 @@ func (m Model) View() string {
 
 	// Input area.
 	inputView := m.input.View()
-	if m.state == stateStreaming {
+	if m.recording {
+		inputView = render.ErrorStyle.Render("  Recording... press Ctrl+Space to stop")
+	} else if m.state == stateStreaming {
 		inputView = render.DimStyle.Render("  waiting for response...")
 	}
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"os/signal"
 	"strings"
@@ -205,6 +206,7 @@ func runTUI(b backend.Backend, sysPrompt string, store *session.Store, sess *ses
 		RenderMD:     flagRender,
 		IsClient:     isClient,
 		PiperModel:   detectPiperModel(),
+		WhisperURL:   detectWhisperURL(),
 	})
 
 	p := tea.NewProgram(m, tea.WithAltScreen())
@@ -222,6 +224,21 @@ func detectPiperModel() string {
 		if _, err := os.Stat(p); err == nil {
 			return p
 		}
+	}
+	return ""
+}
+
+// detectWhisperURL checks if a local whisper.cpp server is reachable.
+func detectWhisperURL() string {
+	candidate := "http://127.0.0.1:8081"
+	client := &http.Client{Timeout: 500 * time.Millisecond}
+	resp, err := client.Get(candidate + "/health")
+	if err != nil {
+		return ""
+	}
+	resp.Body.Close()
+	if resp.StatusCode == 200 {
+		return candidate
 	}
 	return ""
 }

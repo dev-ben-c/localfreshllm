@@ -2,6 +2,7 @@ package tui
 
 import (
 	"context"
+	"fmt"
 	"regexp"
 	"strings"
 	"unicode"
@@ -13,24 +14,6 @@ import (
 	"github.com/rabidclock/localfreshllm/audio/playback"
 	"github.com/rabidclock/localfreshllm/client"
 )
-
-// AudioState tracks voice I/O state in the TUI.
-type AudioState struct {
-	MicEnabled bool
-	TTSEnabled bool
-	Recording  bool
-	Playing    bool
-	recorder   *capture.Recorder
-	player     *playback.Player
-}
-
-// NewAudioState creates an audio state. Mic and TTS start disabled.
-func NewAudioState() AudioState {
-	return AudioState{
-		recorder: &capture.Recorder{},
-		player:   &playback.Player{},
-	}
-}
 
 // Tea messages for audio events.
 type audioRecordDoneMsg struct {
@@ -47,35 +30,38 @@ type audioPlayDoneMsg struct {
 	err error
 }
 
-// startRecording begins mic capture. Returns a command that blocks until stopped externally.
-func (a *AudioState) startRecording(ctx context.Context) tea.Cmd {
+// startRecording begins mic capture via parec/arecord subprocess.
+func startRecording(r *capture.Recorder) tea.Cmd {
 	return func() tea.Msg {
-		if err := a.recorder.Start(ctx); err != nil {
+		if err := r.Start(context.Background()); err != nil {
 			return audioRecordDoneMsg{err: err}
 		}
-		// Recording continues until stopRecording is called.
-		// This command doesn't block — the Stop() call produces the result.
 		return nil
 	}
 }
 
 // stopRecording stops mic capture and returns the PCM data.
-func (a *AudioState) stopRecording() tea.Cmd {
+func stopRecording(r *capture.Recorder) tea.Cmd {
 	return func() tea.Msg {
-		pcm, err := a.recorder.Stop()
+		pcm, err := r.Stop()
 		return audioRecordDoneMsg{pcm: pcm, err: err}
 	}
 }
 
-// transcribeAudio sends PCM data to the server for STT.
-func transcribeAudio(b interface{}, pcm []byte) tea.Cmd {
+// transcribeAudio sends PCM data to Whisper for STT.
+// Supports local Whisper server (via WhisperURL) or remote server (via client mode).
+func transcribeAudio(cfg Config, pcm []byte) tea.Cmd {
 	return func() tea.Msg {
-		remote, ok := b.(*client.RemoteBackend)
-		if !ok {
-			return audioTranscribeDoneMsg{err: nil}
+		if cfg.WhisperURL != "" {
+			whisper := audio.NewWhisperClient(cfg.WhisperURL)
+			text, err := whisper.Transcribe(context.Background(), pcm)
+			return audioTranscribeDoneMsg{text: text, err: err}
 		}
-		text, err := remote.Transcribe(context.Background(), pcm)
-		return audioTranscribeDoneMsg{text: text, err: err}
+		if remote, ok := cfg.Backend.(*client.RemoteBackend); ok {
+			text, err := remote.Transcribe(context.Background(), pcm)
+			return audioTranscribeDoneMsg{text: text, err: err}
+		}
+		return audioTranscribeDoneMsg{err: fmt.Errorf("no whisper server configured")}
 	}
 }
 
@@ -182,26 +168,6 @@ func isSpokenRune(r rune) bool {
 		return true
 	}
 	return false
-}
-
-// HandleAudioKey processes Ctrl+Space toggle for push-to-talk.
-// Returns true if the key was handled, plus any commands to execute.
-func (a *AudioState) HandleAudioKey(msg tea.KeyMsg, cfg *Config) (bool, tea.Cmd) {
-	// Ctrl+Space or F5 toggles recording.
-	isToggle := (msg.Type == tea.KeyCtrlAt) || // Ctrl+Space on some terminals
-		(msg.Type == tea.KeyF5)
-
-	if !isToggle || !a.MicEnabled {
-		return false, nil
-	}
-
-	if a.Recording {
-		a.Recording = false
-		return true, a.stopRecording()
-	}
-
-	a.Recording = true
-	return true, a.startRecording(context.Background())
 }
 
 // AudioAvailable returns whether mic capture and playback tools are installed.

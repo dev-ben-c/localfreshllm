@@ -218,7 +218,7 @@ func runREPL(b backend.Backend, sysPrompt string, store *session.Store, sess *se
 
 		// Slash commands.
 		if strings.HasPrefix(input, "/") {
-			if handleSlashCommand(input, sess, store, &b) {
+			if handleSlashCommand(input, sess, store, &b, scanner) {
 				return nil // /quit
 			}
 			continue
@@ -257,7 +257,7 @@ func runREPL(b backend.Backend, sysPrompt string, store *session.Store, sess *se
 }
 
 // handleSlashCommand processes REPL commands. Returns true if the REPL should exit.
-func handleSlashCommand(input string, sess *session.Session, store *session.Store, b *backend.Backend) bool {
+func handleSlashCommand(input string, sess *session.Session, store *session.Store, b *backend.Backend, scanner *bufio.Scanner) bool {
 	parts := strings.Fields(input)
 	cmd := parts[0]
 
@@ -266,15 +266,25 @@ func handleSlashCommand(input string, sess *session.Session, store *session.Stor
 		return true
 
 	case "/model":
+		models := listAllModels()
 		if len(parts) >= 2 {
-			flagModel = parts[1]
+			arg := parts[1]
+			// Try as a number first.
+			if n, err := strconv.Atoi(arg); err == nil && n >= 1 && n <= len(models) {
+				flagModel = models[n-1]
+				*b = backend.ForModel(flagModel)
+				sess.Model = flagModel
+				render.Infof("Switched to %s", flagModel)
+				return false
+			}
+			// Otherwise treat as model name.
+			flagModel = arg
 			*b = backend.ForModel(flagModel)
 			sess.Model = flagModel
 			render.Infof("Switched to %s", flagModel)
 			return false
 		}
 		// Interactive model picker.
-		models := listAllModels()
 		if len(models) == 0 {
 			render.Infof("No models available.")
 			return false
@@ -288,7 +298,6 @@ func handleSlashCommand(input string, sess *session.Session, store *session.Stor
 			fmt.Printf("%s%s %s\n", marker, render.DimStyle.Render(fmt.Sprintf("[%d]", i+1)), render.ModelStyle.Render(m))
 		}
 		fmt.Print(render.SystemStyle.Render("Enter number: "))
-		scanner := bufio.NewScanner(os.Stdin)
 		if scanner.Scan() {
 			choice := strings.TrimSpace(scanner.Text())
 			n, err := strconv.Atoi(choice)

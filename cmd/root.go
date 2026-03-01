@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -248,7 +249,7 @@ func runREPL(b backend.Backend, sysPrompt string, store *session.Store, sess *se
 		}
 
 		if err != nil && ctx.Err() == nil {
-			render.Errorf("Error: %v", err)
+			fmt.Println(render.ErrorStyle.Render(fmt.Sprintf("Error: %v", err)))
 		}
 	}
 
@@ -265,14 +266,41 @@ func handleSlashCommand(input string, sess *session.Session, store *session.Stor
 		return true
 
 	case "/model":
-		if len(parts) < 2 {
-			render.Infof("Current model: %s", flagModel)
+		if len(parts) >= 2 {
+			flagModel = parts[1]
+			*b = backend.ForModel(flagModel)
+			sess.Model = flagModel
+			render.Infof("Switched to %s", flagModel)
 			return false
 		}
-		flagModel = parts[1]
-		*b = backend.ForModel(flagModel)
-		sess.Model = flagModel
-		render.Infof("Switched to %s", flagModel)
+		// Interactive model picker.
+		models := listAllModels()
+		if len(models) == 0 {
+			render.Infof("No models available.")
+			return false
+		}
+		fmt.Println(render.AssistantStyle.Render("Select a model:"))
+		for i, m := range models {
+			marker := "  "
+			if m == flagModel {
+				marker = render.UserStyle.Render("> ")
+			}
+			fmt.Printf("%s%s %s\n", marker, render.DimStyle.Render(fmt.Sprintf("[%d]", i+1)), render.ModelStyle.Render(m))
+		}
+		fmt.Print(render.SystemStyle.Render("Enter number: "))
+		scanner := bufio.NewScanner(os.Stdin)
+		if scanner.Scan() {
+			choice := strings.TrimSpace(scanner.Text())
+			n, err := strconv.Atoi(choice)
+			if err != nil || n < 1 || n > len(models) {
+				render.Infof("Invalid selection.")
+				return false
+			}
+			flagModel = models[n-1]
+			*b = backend.ForModel(flagModel)
+			sess.Model = flagModel
+			render.Infof("Switched to %s", flagModel)
+		}
 
 	case "/clear":
 		sess.Messages = nil
@@ -285,7 +313,8 @@ func handleSlashCommand(input string, sess *session.Session, store *session.Stor
 
 	case "/help":
 		fmt.Println(render.SystemStyle.Render("Commands:"))
-		fmt.Println(render.SystemStyle.Render("  /model <name>  — switch model"))
+		fmt.Println(render.SystemStyle.Render("  /model         — pick model from list"))
+		fmt.Println(render.SystemStyle.Render("  /model <name>  — switch to named model"))
 		fmt.Println(render.SystemStyle.Render("  /clear         — clear conversation"))
 		fmt.Println(render.SystemStyle.Render("  /history       — list saved sessions"))
 		fmt.Println(render.SystemStyle.Render("  /quit          — exit"))
@@ -305,4 +334,22 @@ func streamCallback() backend.StreamCallback {
 	return func(token string) {
 		fmt.Print(token)
 	}
+}
+
+// listAllModels queries both backends and returns a combined model list.
+func listAllModels() []string {
+	ctx := context.Background()
+	var all []string
+
+	ollama := backend.NewOllama()
+	if models, err := ollama.ListModels(ctx); err == nil {
+		all = append(all, models...)
+	}
+
+	anthropic := backend.NewAnthropic()
+	if models, err := anthropic.ListModels(ctx); err == nil {
+		all = append(all, models...)
+	}
+
+	return all
 }

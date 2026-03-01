@@ -18,9 +18,9 @@ The deploy script provides three options:
 
 ### Prerequisites
 
-- **Go 1.23+**
+- **Go 1.23+** (the deploy script will install it if missing)
 - **Ollama** running locally (`ollama serve`)
-- `../localfreshsearch` directory (sibling repo, required by `go.mod` replace directive)
+- [localfreshsearch](https://github.com/dev-ben-c/localfreshsearch) sibling directory (auto-cloned by the deploy script)
 - **Server mode** additionally requires `systemctl`, `ufw`, and `sudo`
 
 ### Manual Install
@@ -43,7 +43,7 @@ localfreshllm -m qwen2.5:7b "explain goroutines"
 cat main.go | localfreshllm -m claude-sonnet-4-6 "review this code"
 
 # Interactive REPL
-localfreshllm -m qwen3:32b
+localfreshllm
 
 # List all available models (Ollama + Claude)
 localfreshllm --list
@@ -102,7 +102,7 @@ localfreshllm "hello from the client"
 
 | Flag | Short | Description |
 |---|---|---|
-| `--model` | `-m` | Model name (default: `claude-opus-4-6`) |
+| `--model` | `-m` | Model name (default: `qwen3:14b`) |
 | `--system` | `-s` | Custom system prompt |
 | `--persona` | `-p` | Named preset: `coder`, `reviewer`, `writer`, `shell` |
 | `--server` | | Server URL for client mode |
@@ -120,7 +120,10 @@ localfreshllm "hello from the client"
 | `/clear` | Clear conversation history |
 | `/history` | List saved sessions |
 | `/location <city>` | Set location for weather tools |
+| `/tools` | Toggle web search tools |
 | `/quit` | Exit |
+
+The REPL supports arrow-key history (up/down), line editing (left/right), and persists input history across sessions.
 
 ## Session Storage
 
@@ -136,3 +139,16 @@ Conversations are saved as JSON in `~/.local/share/localfreshllm/history/` (resp
 | `LOCALFRESH_MASTER_KEY` | Master key for server device registration |
 | `LOCALFRESH_SERVER` | Server URL for client mode |
 | `LOCALFRESH_KEY` | Device bearer token for client mode |
+
+## Acknowledgments
+
+Built with these excellent open-source projects:
+
+- [Ollama](https://ollama.com/) — local LLM inference
+- [Cobra](https://github.com/spf13/cobra) — CLI framework
+- [Glamour](https://github.com/charmbracelet/glamour) — terminal markdown rendering
+- [Lipgloss](https://github.com/charmbracelet/lipgloss) — terminal styling
+- [readline](https://github.com/chzyer/readline) — REPL line editing and history
+- [Playwright for Go](https://github.com/playwright-community/playwright-go) — web scraping for search tools
+- [go-isatty](https://github.com/mattn/go-isatty) — terminal detection
+- [uuid](https://github.com/google/uuid) — session and device IDs

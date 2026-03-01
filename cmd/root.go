@@ -244,6 +244,9 @@ func runClientREPL(b backend.Backend, sysPrompt string) error {
 				return nil
 			case "/clear":
 				messages = nil
+				if remote, ok := b.(*client.RemoteBackend); ok {
+					remote.ClearSession()
+				}
 				render.Infof("Conversation cleared.")
 				continue
 			case "/tools":

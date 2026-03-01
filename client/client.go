@@ -18,6 +18,7 @@ type RemoteBackend struct {
 	serverURL  string
 	apiKey     string
 	httpClient *http.Client
+	sessionID  string // tracks the active server-side session
 }
 
 // New creates a new remote backend.
@@ -56,6 +57,7 @@ func (r *RemoteBackend) Chat(ctx context.Context, model string, messages []backe
 	enableTools := toolDefs != nil
 	body := chatRequest{
 		Message:     lastUserMsg,
+		SessionID:   r.sessionID,
 		Model:       model,
 		EnableTools: &enableTools,
 	}
@@ -131,6 +133,9 @@ func (r *RemoteBackend) Chat(ctx context.Context, model string, messages []backe
 				}
 				if json.Unmarshal([]byte(data), &ev) == nil {
 					finalText = ev.Text
+					if ev.SessionID != "" {
+						r.sessionID = ev.SessionID
+					}
 				}
 
 			case "error":
@@ -181,6 +186,11 @@ func (r *RemoteBackend) ListModels(ctx context.Context) ([]string, error) {
 	}
 
 	return result.Models, nil
+}
+
+// ClearSession resets the tracked session ID so the next chat starts fresh.
+func (r *RemoteBackend) ClearSession() {
+	r.sessionID = ""
 }
 
 // UpdateLocation sets the device's location on the server.

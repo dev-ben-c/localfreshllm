@@ -20,6 +20,8 @@ import (
 	"github.com/rabidclock/localfreshllm/render"
 	"github.com/rabidclock/localfreshllm/session"
 	"github.com/rabidclock/localfreshllm/systemprompt"
+
+	"github.com/dev-ben-c/localfreshsearch/tools"
 )
 
 var (
@@ -30,6 +32,7 @@ var (
 	flagHistory bool
 	flagResume  string
 	flagRender  bool
+	flagTools   bool
 )
 
 var rootCmd = &cobra.Command{
@@ -50,6 +53,7 @@ func init() {
 	rootCmd.Flags().BoolVar(&flagHistory, "history", false, "List saved conversations")
 	rootCmd.Flags().StringVar(&flagResume, "resume", "", "Session ID (or prefix) to continue")
 	rootCmd.Flags().BoolVar(&flagRender, "render", false, "Render markdown output with glamour")
+	rootCmd.Flags().BoolVar(&flagTools, "tools", true, "Enable web search and page reading tools")
 }
 
 // Execute runs the root command.
@@ -110,6 +114,91 @@ func run(cmd *cobra.Command, args []string) error {
 	return runREPL(b, sysPrompt, store, sess)
 }
 
+// getToolDefs returns the appropriate tool definitions for the current backend,
+// or nil if tools are disabled.
+func getToolDefs() []any {
+	if !flagTools {
+		return nil
+	}
+	if len(flagModel) >= 7 && flagModel[:7] == "claude-" {
+		return tools.AnthropicToolDefs()
+	}
+	return tools.OllamaToolDefs()
+}
+
+// chatWithTools runs a Chat call and loops on tool calls (max 5 iterations).
+// It prints [tool: name] to stderr for each tool invocation.
+// Returns the final text response.
+func chatWithTools(ctx context.Context, b backend.Backend, model string, messages []backend.Message, sysPrompt string, onToken backend.StreamCallback) (string, []backend.Message, error) {
+	toolDefs := getToolDefs()
+
+	var executor *tools.Executor
+	if toolDefs != nil {
+		executor = tools.NewExecutor()
+		defer executor.Close()
+	}
+
+	// Track new messages generated during tool loop (for session persistence).
+	var newMessages []backend.Message
+
+	for i := 0; i < 5; i++ {
+		result, err := b.Chat(ctx, model, messages, sysPrompt, toolDefs, onToken)
+		if err != nil {
+			return result.Text, newMessages, err
+		}
+
+		if len(result.ToolCalls) == 0 || toolDefs == nil {
+			return result.Text, newMessages, nil
+		}
+
+		// Record the assistant's tool-call message.
+		assistantMsg := backend.Message{
+			Role:      "assistant",
+			Content:   result.Text,
+			ToolCalls: result.ToolCalls,
+		}
+		messages = append(messages, assistantMsg)
+		newMessages = append(newMessages, assistantMsg)
+
+		// Execute each tool call.
+		isAnthropic := len(model) >= 7 && model[:7] == "claude-"
+
+		if isAnthropic {
+			// Anthropic: all tool results in one user message with blocks.
+			var blocks []backend.ContentBlock
+			for _, tc := range result.ToolCalls {
+				fmt.Fprintf(os.Stderr, "%s\n", render.DimStyle.Render(fmt.Sprintf("[tool: %s]", tc.Name)))
+				tr := executor.Execute(ctx, tools.ToolCall{ID: tc.ID, Name: tc.Name, Args: tc.Args})
+				blocks = append(blocks, backend.ContentBlock{
+					Type:      "tool_result",
+					ToolUseID: tr.ID,
+					Content:   tr.Content,
+					IsError:   tr.IsError,
+				})
+			}
+			toolMsg := backend.Message{Role: "user", Blocks: blocks}
+			messages = append(messages, toolMsg)
+			newMessages = append(newMessages, toolMsg)
+		} else {
+			// Ollama: one tool message per result.
+			for _, tc := range result.ToolCalls {
+				fmt.Fprintf(os.Stderr, "%s\n", render.DimStyle.Render(fmt.Sprintf("[tool: %s]", tc.Name)))
+				tr := executor.Execute(ctx, tools.ToolCall{ID: tc.ID, Name: tc.Name, Args: tc.Args})
+				toolMsg := backend.Message{Role: "tool", Content: tr.Content}
+				messages = append(messages, toolMsg)
+				newMessages = append(newMessages, toolMsg)
+			}
+		}
+	}
+
+	// Hit max iterations — do a final call without tools.
+	result, err := b.Chat(ctx, model, messages, sysPrompt, nil, onToken)
+	if err != nil {
+		return result.Text, newMessages, err
+	}
+	return result.Text, newMessages, nil
+}
+
 func runPipe(b backend.Backend, sysPrompt string, args []string) error {
 	// Read stdin with a timeout to handle empty pipes that stay open
 	// (e.g., when launched by process managers that don't close stdin).
@@ -167,9 +256,10 @@ func runPipe(b backend.Backend, sysPrompt string, args []string) error {
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT)
 	defer cancel()
 
-	_, chatErr := b.Chat(ctx, flagModel, messages, sysPrompt, func(token string) {
+	response, _, chatErr := chatWithTools(ctx, b, flagModel, messages, sysPrompt, func(token string) {
 		fmt.Print(token)
 	})
+	_ = response
 	fmt.Println()
 	return chatErr
 }
@@ -188,16 +278,22 @@ func runOneShot(b backend.Backend, sysPrompt string, store *session.Store, sess 
 
 	fmt.Fprintln(os.Stderr, render.AssistantStyle.Render(flagModel+":"))
 
-	response, err := b.Chat(ctx, flagModel, sess.Messages, sysPrompt, streamCallback())
+	response, newMsgs, err := chatWithTools(ctx, b, flagModel, sess.Messages, sysPrompt, streamCallback())
 	if !flagRender {
 		fmt.Println()
 	}
 
-	if response != "" {
-		if flagRender {
-			fmt.Print(render.RenderMarkdown(response))
+	if response != "" || len(newMsgs) > 0 {
+		// Add intermediate tool messages to session.
+		for _, m := range newMsgs {
+			sess.Messages = append(sess.Messages, m)
 		}
-		sess.AddMessage("assistant", response)
+		if response != "" {
+			if flagRender {
+				fmt.Print(render.RenderMarkdown(response))
+			}
+			sess.AddMessage("assistant", response)
+		}
 		if saveErr := store.Save(sess); saveErr != nil {
 			render.Errorf("Failed to save session: %v", saveErr)
 		}
@@ -241,19 +337,25 @@ func runREPL(b backend.Backend, sysPrompt string, store *session.Store, sess *se
 
 		ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT)
 
-		response, err := b.Chat(ctx, flagModel, sess.Messages, sysPrompt, streamCallback())
+		response, newMsgs, err := chatWithTools(ctx, b, flagModel, sess.Messages, sysPrompt, streamCallback())
 		cancel()
 		if !flagRender {
 			fmt.Println()
 		}
 		fmt.Println()
 
-		if response != "" {
-			if flagRender {
-				fmt.Print(render.RenderMarkdown(response))
-				fmt.Println()
+		if response != "" || len(newMsgs) > 0 {
+			// Add intermediate tool messages to session.
+			for _, m := range newMsgs {
+				sess.Messages = append(sess.Messages, m)
 			}
-			sess.AddMessage("assistant", response)
+			if response != "" {
+				if flagRender {
+					fmt.Print(render.RenderMarkdown(response))
+					fmt.Println()
+				}
+				sess.AddMessage("assistant", response)
+			}
 			if saveErr := store.Save(sess); saveErr != nil {
 				render.Errorf("Failed to save session: %v", saveErr)
 			}
@@ -333,12 +435,21 @@ func handleSlashCommand(input string, sess *session.Session, store *session.Stor
 			render.Errorf("Error: %v", err)
 		}
 
+	case "/tools":
+		flagTools = !flagTools
+		if flagTools {
+			render.Infof("Tools enabled")
+		} else {
+			render.Infof("Tools disabled")
+		}
+
 	case "/help":
 		fmt.Println(render.SystemStyle.Render("Commands:"))
 		fmt.Println(render.SystemStyle.Render("  /model         — pick model from list"))
 		fmt.Println(render.SystemStyle.Render("  /model <name>  — switch to named model"))
 		fmt.Println(render.SystemStyle.Render("  /clear         — clear conversation"))
 		fmt.Println(render.SystemStyle.Render("  /history       — list saved sessions"))
+		fmt.Println(render.SystemStyle.Render("  /tools         — toggle web search tools"))
 		fmt.Println(render.SystemStyle.Render("  /quit          — exit"))
 
 	default:

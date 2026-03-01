@@ -48,6 +48,7 @@ func (p *PiperTTS) Speak(ctx context.Context, text string) ([]byte, error) {
 	cmd := exec.CommandContext(ctx, piperBin,
 		"--model", p.ModelPath,
 		"--output_file", "-",
+		"--length_scale", "0.8",
 		"--quiet",
 	)
 

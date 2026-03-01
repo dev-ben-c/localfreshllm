@@ -215,6 +215,7 @@ func runTUI(b backend.Backend, sysPrompt string, store *session.Store, sess *ses
 // detectPiperModel checks common paths for a piper voice model.
 func detectPiperModel() string {
 	candidates := []string{
+		"/opt/piper/models/en_US-kristin-medium.onnx",
 		"/opt/piper/models/en_US-lessac-medium.onnx",
 	}
 	for _, p := range candidates {

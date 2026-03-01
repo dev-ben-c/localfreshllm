@@ -68,6 +68,9 @@ func run(cmd *cobra.Command, args []string) error {
 
 	sysPrompt := systemprompt.Get(flagSystem, flagPersona)
 	b := backend.ForModel(flagModel)
+	if err := b.Validate(); err != nil {
+		return err
+	}
 	store := session.NewStore()
 
 	// Load or create session.
@@ -267,46 +270,48 @@ func handleSlashCommand(input string, sess *session.Session, store *session.Stor
 
 	case "/model":
 		models := listAllModels()
+		var chosen string
 		if len(parts) >= 2 {
 			arg := parts[1]
 			// Try as a number first.
 			if n, err := strconv.Atoi(arg); err == nil && n >= 1 && n <= len(models) {
-				flagModel = models[n-1]
-				*b = backend.ForModel(flagModel)
-				sess.Model = flagModel
-				render.Infof("Switched to %s", flagModel)
+				chosen = models[n-1]
+			} else {
+				chosen = arg
+			}
+		} else {
+			// Interactive model picker.
+			if len(models) == 0 {
+				render.Infof("No models available.")
 				return false
 			}
-			// Otherwise treat as model name.
-			flagModel = arg
-			*b = backend.ForModel(flagModel)
-			sess.Model = flagModel
-			render.Infof("Switched to %s", flagModel)
-			return false
-		}
-		// Interactive model picker.
-		if len(models) == 0 {
-			render.Infof("No models available.")
-			return false
-		}
-		fmt.Println(render.AssistantStyle.Render("Select a model:"))
-		for i, m := range models {
-			marker := "  "
-			if m == flagModel {
-				marker = render.UserStyle.Render("> ")
+			fmt.Println(render.AssistantStyle.Render("Select a model:"))
+			for i, m := range models {
+				marker := "  "
+				if m == flagModel {
+					marker = render.UserStyle.Render("> ")
+				}
+				fmt.Printf("%s%s %s\n", marker, render.DimStyle.Render(fmt.Sprintf("[%d]", i+1)), render.ModelStyle.Render(m))
 			}
-			fmt.Printf("%s%s %s\n", marker, render.DimStyle.Render(fmt.Sprintf("[%d]", i+1)), render.ModelStyle.Render(m))
+			fmt.Print(render.SystemStyle.Render("Enter number: "))
+			if scanner.Scan() {
+				choice := strings.TrimSpace(scanner.Text())
+				n, err := strconv.Atoi(choice)
+				if err != nil || n < 1 || n > len(models) {
+					render.Infof("Invalid selection.")
+					return false
+				}
+				chosen = models[n-1]
+			}
 		}
-		fmt.Print(render.SystemStyle.Render("Enter number: "))
-		if scanner.Scan() {
-			choice := strings.TrimSpace(scanner.Text())
-			n, err := strconv.Atoi(choice)
-			if err != nil || n < 1 || n > len(models) {
-				render.Infof("Invalid selection.")
+		if chosen != "" {
+			newBackend := backend.ForModel(chosen)
+			if err := newBackend.Validate(); err != nil {
+				fmt.Println(render.ErrorStyle.Render(fmt.Sprintf("Error: %v", err)))
 				return false
 			}
-			flagModel = models[n-1]
-			*b = backend.ForModel(flagModel)
+			flagModel = chosen
+			*b = newBackend
 			sess.Model = flagModel
 			render.Infof("Switched to %s", flagModel)
 		}

@@ -26,6 +26,13 @@ func NewAnthropic() *Anthropic {
 	}
 }
 
+func (a *Anthropic) Validate() error {
+	if a.apiKey == "" {
+		return fmt.Errorf("ANTHROPIC_API_KEY is not set.\n  export ANTHROPIC_API_KEY=sk-ant-...\n  Or use a local model: localfreshllm -m qwen2.5:7b")
+	}
+	return nil
+}
+
 type anthropicMessage struct {
 	Role    string `json:"role"`
 	Content string `json:"content"`

@@ -15,6 +15,9 @@ type Message struct {
 type Backend interface {
 	Chat(ctx context.Context, model string, messages []Message, systemPrompt string, onToken StreamCallback) (string, error)
 	ListModels(ctx context.Context) ([]string, error)
+	// Validate checks if the backend is ready (e.g., API key set, server reachable).
+	// Returns nil if ready, or a user-friendly error message.
+	Validate() error
 }
 
 // ForModel returns the appropriate backend based on model name prefix.

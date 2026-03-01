@@ -30,6 +30,10 @@ func NewOllama() *Ollama {
 	}
 }
 
+func (o *Ollama) Validate() error {
+	return nil
+}
+
 type ollamaChatRequest struct {
 	Model    string    `json:"model"`
 	Messages []Message `json:"messages"`

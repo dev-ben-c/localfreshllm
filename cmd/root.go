@@ -1,7 +1,6 @@
 package cmd
 
 import (
-	"bufio"
 	"context"
 	"fmt"
 	"io"
@@ -12,6 +11,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/chzyer/readline"
 	"github.com/google/uuid"
 	"github.com/mattn/go-isatty"
 	"github.com/spf13/cobra"
@@ -85,6 +85,15 @@ func serverKey() string {
 		return flagKey
 	}
 	return os.Getenv("LOCALFRESH_KEY")
+}
+
+// historyFile returns the path to the readline history file.
+func historyFile() string {
+	dir := os.Getenv("XDG_DATA_HOME")
+	if dir == "" {
+		dir = os.ExpandEnv("$HOME/.local/share")
+	}
+	return dir + "/localfreshllm/.readline_history"
 }
 
 func run(cmd *cobra.Command, args []string) error {
@@ -225,14 +234,24 @@ func runClientREPL(b backend.Backend, sysPrompt string) error {
 	render.Infof("localfreshllm (remote) — model: %s — /help for commands, /quit to exit", flagModel)
 	fmt.Println()
 
-	scanner := bufio.NewScanner(os.Stdin)
+	rl, err := readline.NewEx(&readline.Config{
+		Prompt:          render.UserStyle.Render("You: "),
+		HistoryFile:     historyFile(),
+		InterruptPrompt: "^C",
+		EOFPrompt:       "/quit",
+	})
+	if err != nil {
+		return fmt.Errorf("readline init: %w", err)
+	}
+	defer rl.Close()
+
 	for {
-		fmt.Print(render.UserStyle.Render("You: "))
-		if !scanner.Scan() {
+		line, err := rl.Readline()
+		if err != nil {
 			break
 		}
 
-		input := strings.TrimSpace(scanner.Text())
+		input := strings.TrimSpace(line)
 		if input == "" {
 			continue
 		}
@@ -479,21 +498,31 @@ func runREPL(b backend.Backend, sysPrompt string, store *session.Store, sess *se
 	render.Infof("localfreshllm — model: %s — /help for commands, /quit to exit", flagModel)
 	fmt.Println()
 
-	scanner := bufio.NewScanner(os.Stdin)
+	rl, err := readline.NewEx(&readline.Config{
+		Prompt:          render.UserStyle.Render("You: "),
+		HistoryFile:     historyFile(),
+		InterruptPrompt: "^C",
+		EOFPrompt:       "/quit",
+	})
+	if err != nil {
+		return fmt.Errorf("readline init: %w", err)
+	}
+	defer rl.Close()
+
 	for {
-		fmt.Print(render.UserStyle.Render("You: "))
-		if !scanner.Scan() {
+		line, err := rl.Readline()
+		if err != nil {
 			break
 		}
 
-		input := strings.TrimSpace(scanner.Text())
+		input := strings.TrimSpace(line)
 		if input == "" {
 			continue
 		}
 
 		// Slash commands.
 		if strings.HasPrefix(input, "/") {
-			if handleSlashCommand(input, sess, store, &b, scanner) {
+			if handleSlashCommand(input, sess, store, &b, rl) {
 				return nil // /quit
 			}
 			continue
@@ -538,7 +567,7 @@ func runREPL(b backend.Backend, sysPrompt string, store *session.Store, sess *se
 }
 
 // handleSlashCommand processes REPL commands. Returns true if the REPL should exit.
-func handleSlashCommand(input string, sess *session.Session, store *session.Store, b *backend.Backend, scanner *bufio.Scanner) bool {
+func handleSlashCommand(input string, sess *session.Session, store *session.Store, b *backend.Backend, rl *readline.Instance) bool {
 	parts := strings.Fields(input)
 	cmd := parts[0]
 
@@ -571,16 +600,18 @@ func handleSlashCommand(input string, sess *session.Session, store *session.Stor
 				}
 				fmt.Printf("%s%s %s\n", marker, render.DimStyle.Render(fmt.Sprintf("[%d]", i+1)), render.ModelStyle.Render(m))
 			}
-			fmt.Print(render.SystemStyle.Render("Enter number: "))
-			if scanner.Scan() {
-				choice := strings.TrimSpace(scanner.Text())
-				n, err := strconv.Atoi(choice)
-				if err != nil || n < 1 || n > len(models) {
-					render.Infof("Invalid selection.")
-					return false
-				}
-				chosen = models[n-1]
+			rl.SetPrompt(render.SystemStyle.Render("Enter number: "))
+			choice, err := rl.Readline()
+			rl.SetPrompt(render.UserStyle.Render("You: "))
+			if err != nil {
+				return false
 			}
+			n, nerr := strconv.Atoi(strings.TrimSpace(choice))
+			if nerr != nil || n < 1 || n > len(models) {
+				render.Infof("Invalid selection.")
+				return false
+			}
+			chosen = models[n-1]
 		}
 		if chosen != "" {
 			newBackend := backend.ForModel(chosen)

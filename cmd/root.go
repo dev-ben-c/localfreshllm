@@ -141,6 +141,7 @@ func chatWithTools(ctx context.Context, b backend.Backend, model string, message
 		if cfg != nil {
 			executor.DefaultLocation = cfg.Location
 		}
+		executor.Prefetch()
 		defer executor.Close()
 	}
 

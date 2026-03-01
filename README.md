@@ -241,6 +241,7 @@ Built with these excellent open-source projects:
 - [Bubbles](https://github.com/charmbracelet/bubbles) — TUI components (viewport, text input)
 - [Glamour](https://github.com/charmbracelet/glamour) — terminal markdown rendering
 - [Lipgloss](https://github.com/charmbracelet/lipgloss) — terminal styling
+- [Piper](https://github.com/rhasspy/piper) — fast local neural text-to-speech
 - [Playwright for Go](https://github.com/playwright-community/playwright-go) — web scraping for search tools
 - [go-isatty](https://github.com/mattn/go-isatty) — terminal detection
 - [uuid](https://github.com/google/uuid) — session and device IDs

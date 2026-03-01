@@ -35,10 +35,11 @@ func (o *Ollama) Validate() error {
 }
 
 type ollamaChatRequest struct {
-	Model    string    `json:"model"`
-	Messages []any     `json:"messages"`
-	Stream   bool      `json:"stream"`
-	Tools    []any     `json:"tools,omitempty"`
+	Model     string    `json:"model"`
+	Messages  []any     `json:"messages"`
+	Stream    bool      `json:"stream"`
+	Tools     []any     `json:"tools,omitempty"`
+	KeepAlive int       `json:"keep_alive"`
 }
 
 type ollamaToolCall struct {
@@ -111,10 +112,11 @@ func (o *Ollama) Chat(ctx context.Context, model string, messages []Message, sys
 	allMessages = append(allMessages, messages...)
 
 	body := ollamaChatRequest{
-		Model:    model,
-		Messages: ollamaMarshalMessages(allMessages),
-		Stream:   true,
-		Tools:    toolDefs,
+		Model:     model,
+		Messages:  ollamaMarshalMessages(allMessages),
+		Stream:    true,
+		Tools:     toolDefs,
+		KeepAlive: -1,
 	}
 
 	jsonBody, err := json.Marshal(body)

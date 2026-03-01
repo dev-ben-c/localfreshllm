@@ -18,35 +18,84 @@ print_warn()    { echo -e "  ${YELLOW}!${RESET} $1"; }
 print_err()     { echo -e "  ${RED}✗${RESET} $1"; }
 print_info()    { echo -e "  ${BOLD}$1${RESET}"; }
 
+# ── Go installer ──────────────────────────────────────────────────────────────
+
+GO_VERSION="1.23.6"
+
+install_go() {
+    local arch
+    case "$(uname -m)" in
+        x86_64)  arch="amd64" ;;
+        aarch64) arch="arm64" ;;
+        *)       print_err "Unsupported architecture: $(uname -m)"; return 1 ;;
+    esac
+
+    local tarball="go${GO_VERSION}.linux-${arch}.tar.gz"
+    local url="https://go.dev/dl/${tarball}"
+
+    print_step "Downloading Go ${GO_VERSION} (${arch})..."
+    curl -fSL -o "/tmp/${tarball}" "$url"
+
+    print_step "Installing to /usr/local/go..."
+    sudo rm -rf /usr/local/go
+    sudo tar -C /usr/local -xzf "/tmp/${tarball}"
+    rm -f "/tmp/${tarball}"
+
+    # Add to PATH for this session
+    export PATH="/usr/local/go/bin:$PATH"
+    print_ok "Go ${GO_VERSION} installed"
+
+    # Hint for future sessions
+    if ! grep -q '/usr/local/go/bin' "${HOME}/.profile" 2>/dev/null; then
+        echo 'export PATH="/usr/local/go/bin:$PATH"' >> "${HOME}/.profile"
+        print_info "Added /usr/local/go/bin to ~/.profile"
+    fi
+}
+
 # ── Prerequisites ─────────────────────────────────────────────────────────────
 
 check_prereqs() {
     local ok=true
+    local need_go=false
 
     if ! command -v go &>/dev/null; then
-        print_err "Go is not installed"
-        ok=false
+        need_go=true
     else
         local go_ver
         go_ver=$(go version | grep -oP '\d+\.\d+' | head -1)
         if [[ "$(printf '%s\n' "1.23" "$go_ver" | sort -V | head -1)" != "1.23" ]]; then
-            print_err "Go >= 1.23 required (found $go_ver)"
-            ok=false
+            print_warn "Go >= 1.23 required (found $go_ver)"
+            need_go=true
         else
             print_ok "Go $go_ver"
         fi
     fi
 
+    if [[ "$need_go" == true ]]; then
+        read -rp "  Go >= 1.23 not found. Install Go ${GO_VERSION}? [Y/n] " go_choice
+        if [[ "${go_choice,,}" != "n" ]]; then
+            install_go
+        else
+            print_err "Go is required to build"
+            ok=false
+        fi
+    fi
+
     if [[ ! -f go.mod ]]; then
-        print_err "Not in repo root (go.mod not found). Run from /home/ben/localfreshllm/"
+        print_err "Not in repo root (go.mod not found). Run from the localfreshllm directory."
         ok=false
     else
         print_ok "In repo root"
     fi
 
     if [[ ! -d ../localfreshsearch ]]; then
-        print_err "../localfreshsearch directory not found (required by go.mod replace directive)"
-        ok=false
+        print_step "Cloning localfreshsearch (build dependency)..."
+        if git clone https://github.com/dev-ben-c/localfreshsearch.git ../localfreshsearch; then
+            print_ok "Cloned ../localfreshsearch"
+        else
+            print_err "Failed to clone localfreshsearch"
+            ok=false
+        fi
     else
         print_ok "../localfreshsearch exists"
     fi

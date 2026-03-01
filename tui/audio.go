@@ -16,11 +16,6 @@ import (
 )
 
 // Tea messages for audio events.
-type audioRecordDoneMsg struct {
-	pcm []byte
-	err error
-}
-
 type audioTranscribeDoneMsg struct {
 	text string
 	err  error
@@ -28,24 +23,6 @@ type audioTranscribeDoneMsg struct {
 
 type audioPlayDoneMsg struct {
 	err error
-}
-
-// startRecording begins mic capture via parec/arecord subprocess.
-func startRecording(r *capture.Recorder) tea.Cmd {
-	return func() tea.Msg {
-		if err := r.Start(context.Background()); err != nil {
-			return audioRecordDoneMsg{err: err}
-		}
-		return nil
-	}
-}
-
-// stopRecording stops mic capture and returns the PCM data.
-func stopRecording(r *capture.Recorder) tea.Cmd {
-	return func() tea.Msg {
-		pcm, err := r.Stop()
-		return audioRecordDoneMsg{pcm: pcm, err: err}
-	}
 }
 
 // transcribeAudio sends PCM data to Whisper for STT.

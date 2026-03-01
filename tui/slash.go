@@ -244,7 +244,7 @@ func helpText() string {
 		"  /clear         - clear conversation",
 		"  /history       - session history info",
 		"  /tools         - toggle web search tools",
-		"  /voice         - toggle voice input (Ctrl+Space to record)",
+		"  /voice         - toggle voice mode (wake word: \"lemon\")",
 		"  /tts           - toggle text-to-speech",
 		"  /timer <dur>   - start a timer (e.g. 5m, 1h30m)",
 		"  /timer cancel  - cancel a timer by number",
@@ -254,6 +254,7 @@ func helpText() string {
 		"Navigation:",
 		"  PgUp/PgDn      - scroll chat",
 		"  Up/Down         - input history",
+		"  Ctrl+Space/F5   - toggle voice mode",
 	}, "\n")
 }
 

@@ -65,9 +65,9 @@ type Model struct {
 	ttsEnabled bool
 	player     *playback.Player
 
-	micEnabled bool
-	recording  bool
-	recorder   *capture.Recorder
+	voiceMode bool
+	listening bool
+	listener  *capture.Listener
 
 	timers       []Timer
 	timerTicking bool
@@ -106,8 +106,8 @@ func New(cfg Config) Model {
 		streamBuf: &strings.Builder{},
 		history:   loadHistory(),
 		histIdx:   -1,
-		player:    &playback.Player{},
-		recorder:  &capture.Recorder{},
+		player:   &playback.Player{},
+		listener: &capture.Listener{},
 	}
 
 	// Restore session messages into chat display.
@@ -191,10 +191,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.input.Focus()
 		m.rebuildViewport()
 
+		var batchCmds []tea.Cmd
+		batchCmds = append(batchCmds, textinput.Blink)
 		if m.ttsEnabled && rawText != "" {
-			return m, tea.Batch(textinput.Blink, playTTS(m.cfg, m.player, rawText))
+			batchCmds = append(batchCmds, playTTS(m.cfg, m.player, rawText))
 		}
-		return m, textinput.Blink
+		// Resume listening after response if voice mode is active.
+		if m.voiceMode && !m.listening {
+			m.listening = true
+			batchCmds = append(batchCmds, listenForSegment(m.listener))
+		}
+		return m, tea.Batch(batchCmds...)
 
 	case errorMsg:
 		m.streamBuf.Reset()
@@ -239,24 +246,29 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
-	case audioRecordDoneMsg:
-		m.recording = false
+	case voiceSegmentMsg:
 		if msg.err != nil {
+			m.listening = false
 			m.messages = append(m.messages, chatMessage{
 				role:    "error",
-				content: "Recording: " + msg.err.Error(),
+				content: "Listener: " + msg.err.Error(),
 			})
 			m.rebuildViewport()
 			return m, nil
 		}
 		if len(msg.pcm) == 0 {
+			// No data — keep listening.
+			if m.voiceMode {
+				return m, listenForSegment(m.listener)
+			}
 			return m, nil
 		}
+		// Got a speech segment — transcribe it.
 		m.messages = append(m.messages, chatMessage{role: "system", content: "Transcribing..."})
 		m.rebuildViewport()
-		return m, transcribeAudio(m.cfg, msg.pcm)
+		return m, transcribeVoiceSegment(m.cfg, msg.pcm)
 
-	case audioTranscribeDoneMsg:
+	case voiceTranscribedMsg:
 		// Remove "Transcribing..." message.
 		if len(m.messages) > 0 && m.messages[len(m.messages)-1].content == "Transcribing..." {
 			m.messages = m.messages[:len(m.messages)-1]
@@ -267,14 +279,45 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				content: "Transcribe: " + msg.err.Error(),
 			})
 			m.rebuildViewport()
+			// Resume listening.
+			if m.voiceMode {
+				return m, listenForSegment(m.listener)
+			}
 			return m, nil
 		}
-		if msg.text != "" {
-			m.input.SetValue(strings.TrimSpace(msg.text))
-			m.input.CursorEnd()
+
+		text := strings.TrimSpace(msg.text)
+		if text == "" {
+			// Empty transcription — keep listening.
+			if m.voiceMode {
+				return m, listenForSegment(m.listener)
+			}
+			return m, nil
 		}
-		m.rebuildViewport()
-		return m, nil
+
+		// Check for wake word.
+		afterWake, hasWake := extractAfterWakeWord(text)
+		if !hasWake {
+			// No wake word — ignore and keep listening.
+			if m.voiceMode {
+				return m, listenForSegment(m.listener)
+			}
+			return m, nil
+		}
+
+		if afterWake == "" {
+			// Just the wake word by itself — acknowledge and keep listening.
+			m.messages = append(m.messages, chatMessage{role: "system", content: "Listening..."})
+			m.rebuildViewport()
+			if m.voiceMode {
+				return m, listenForSegment(m.listener)
+			}
+			return m, nil
+		}
+
+		// Wake word + text — auto-submit.
+		m.input.SetValue(afterWake)
+		return m.handleSubmit()
 
 	case audioPlayDoneMsg:
 		if msg.err != nil {
@@ -299,12 +342,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.messages = append(m.messages, chatMessage{role: "system", content: "TTS " + status})
 		}
 		if msg.voiceToggle {
-			m.micEnabled = !m.micEnabled
-			status := "enabled (Ctrl+Space to record)"
-			if !m.micEnabled {
-				status = "disabled"
-			}
-			m.messages = append(m.messages, chatMessage{role: "system", content: "Voice input " + status})
+			return m.toggleVoiceMode()
 		}
 		// Timer actions.
 		if msg.timerAdd != nil {
@@ -414,16 +452,8 @@ func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tea.KeyCtrlAt, tea.KeyF5:
-		if m.micEnabled {
-			if m.recording {
-				m.recording = false
-				return m, stopRecording(m.recorder)
-			}
-			m.recording = true
-			m.rebuildViewport()
-			return m, startRecording(m.recorder)
-		}
-		return m, nil
+		// Toggle voice mode on/off.
+		return m.toggleVoiceMode()
 
 	case tea.KeyEnter:
 		return m.handleSubmit()
@@ -476,9 +506,10 @@ func (m *Model) handleSubmit() (tea.Model, tea.Cmd) {
 		m.cfg.Session.AddMessage("user", input)
 	}
 
-	// Start streaming.
+	// Start streaming. Pause voice listening during response.
 	m.state = stateStreaming
 	m.mascot.state = mascotThinking
+	m.listening = false
 	m.input.Blur()
 	m.rebuildViewport()
 
@@ -497,6 +528,27 @@ func (m *Model) handleSubmit() (tea.Model, tea.Cmd) {
 		startChat(m.cfg, messages, ch),
 		waitForEvent(ch),
 	)
+}
+
+func (m *Model) toggleVoiceMode() (tea.Model, tea.Cmd) {
+	m.voiceMode = !m.voiceMode
+	if m.voiceMode {
+		m.messages = append(m.messages, chatMessage{
+			role:    "system",
+			content: "Voice mode enabled — say \"lemon\" followed by your message",
+		})
+		// Create a fresh listener each time (Stop kills the subprocess).
+		m.listener = &capture.Listener{}
+		m.listening = true
+		m.rebuildViewport()
+		return m, startAndListen(m.listener)
+	}
+	// Disable voice mode.
+	m.listening = false
+	m.listener.Stop()
+	m.messages = append(m.messages, chatMessage{role: "system", content: "Voice mode disabled"})
+	m.rebuildViewport()
+	return m, nil
 }
 
 func (m *Model) rebuildViewport() {
@@ -527,11 +579,11 @@ func (m Model) View() string {
 	if m.ttsEnabled {
 		ttsStatus = "on"
 	}
-	micStatus := "off"
-	if m.micEnabled {
-		micStatus = "on"
+	voiceStatus := "off"
+	if m.voiceMode {
+		voiceStatus = "on"
 	}
-	statusLine += "\n" + render.DimStyle.Render("tools: "+toolsStatus+"  tts: "+ttsStatus+"  mic: "+micStatus)
+	statusLine += "\n" + render.DimStyle.Render("tools: "+toolsStatus+"  tts: "+ttsStatus+"  voice: "+voiceStatus)
 	if ts := renderTimerStatus(m.timers); ts != "" {
 		statusLine += "\n" + render.TimerStyle.Render(ts)
 	}
@@ -553,8 +605,8 @@ func (m Model) View() string {
 
 	// Input area.
 	inputView := m.input.View()
-	if m.recording {
-		inputView = render.ErrorStyle.Render("  Recording... press Ctrl+Space to stop")
+	if m.voiceMode && m.listening && m.state != stateStreaming {
+		inputView = render.DimStyle.Render("  Listening for \"lemon\"... (Ctrl+Space to stop)")
 	} else if m.state == stateStreaming {
 		inputView = render.DimStyle.Render("  waiting for response...")
 	}

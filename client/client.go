@@ -183,6 +183,28 @@ func (r *RemoteBackend) ListModels(ctx context.Context) ([]string, error) {
 	return result.Models, nil
 }
 
+// UpdateLocation sets the device's location on the server.
+func (r *RemoteBackend) UpdateLocation(location string) error {
+	body, _ := json.Marshal(map[string]string{"location": location})
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodPut, r.serverURL+"/v1/devices/me", bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+r.apiKey)
+
+	resp, err := r.httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("update location: %w", err)
+	}
+	resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("update location: status %d", resp.StatusCode)
+	}
+	return nil
+}
+
 // Validate checks connectivity to the server.
 func (r *RemoteBackend) Validate() error {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)

@@ -254,9 +254,24 @@ func runClientREPL(b backend.Backend, sysPrompt string) error {
 					render.Infof("Tools disabled")
 				}
 				continue
+			case "/location":
+				if len(parts) < 2 {
+					render.Infof("Usage: /location <city>")
+					continue
+				}
+				loc := strings.Join(parts[1:], " ")
+				if remote, ok := b.(*client.RemoteBackend); ok {
+					if err := remote.UpdateLocation(loc); err != nil {
+						render.Infof("Failed to update location: %v", err)
+					} else {
+						render.Infof("Location set to %s", loc)
+					}
+				}
+				continue
 			case "/help":
 				fmt.Println(render.SystemStyle.Render("Commands:"))
 				fmt.Println(render.SystemStyle.Render("  /clear         — clear conversation"))
+				fmt.Println(render.SystemStyle.Render("  /location      — set location for weather tools"))
 				fmt.Println(render.SystemStyle.Render("  /tools         — toggle web search tools"))
 				fmt.Println(render.SystemStyle.Render("  /quit          — exit"))
 				continue

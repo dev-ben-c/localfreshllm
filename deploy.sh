@@ -287,7 +287,7 @@ simple_client() {
     local server_url=""
     while true; do
         echo
-        read -rp "  Server URL (e.g. http://192.168.0.69:8400): " server_url
+        read -rp "  Server URL (e.g. http://192.168.1.2:8400): " server_url
         server_url="${server_url%/}"
         if [[ -z "$server_url" ]]; then
             print_err "Server URL cannot be empty"

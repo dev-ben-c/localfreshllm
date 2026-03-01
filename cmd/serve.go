@@ -12,8 +12,9 @@ import (
 var (
 	serveAddr       string
 	serveKey        string
-	serveWhisperURL string
-	servePiperModel string
+	serveWhisperURL  string
+	servePiperModel  string
+	servePiperSpeaker string
 )
 
 var serveCmd = &cobra.Command{
@@ -28,6 +29,7 @@ func init() {
 	serveCmd.Flags().StringVar(&serveKey, "key", "", "Master registration key (or LOCALFRESH_MASTER_KEY env)")
 	serveCmd.Flags().StringVar(&serveWhisperURL, "whisper-url", "", "Whisper.cpp server URL for speech-to-text (e.g. http://127.0.0.1:8081)")
 	serveCmd.Flags().StringVar(&servePiperModel, "piper-model", "", "Piper TTS model path for text-to-speech")
+	serveCmd.Flags().StringVar(&servePiperSpeaker, "piper-speaker", "", "Piper speaker ID for multi-speaker models")
 	rootCmd.AddCommand(serveCmd)
 }
 
@@ -41,8 +43,9 @@ func runServe(cmd *cobra.Command, args []string) error {
 	}
 
 	audioCfg := server.AudioConfig{
-		WhisperURL: serveWhisperURL,
-		PiperModel: servePiperModel,
+		WhisperURL:   serveWhisperURL,
+		PiperModel:   servePiperModel,
+		PiperSpeaker: servePiperSpeaker,
 	}
 
 	srv := server.NewWithAudio(serveAddr, key, audioCfg)

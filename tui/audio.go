@@ -55,7 +55,7 @@ func playTTS(cfg Config, p *playback.Player, text string) tea.Cmd {
 		var err error
 
 		if cfg.PiperModel != "" {
-			piper := audio.NewPiperTTS(cfg.PiperModel)
+			piper := audio.NewPiperTTS(cfg.PiperModel, cfg.PiperSpeaker)
 			wavData, err = piper.Speak(context.Background(), clean)
 		} else if remote, ok := cfg.Backend.(*client.RemoteBackend); ok {
 			wavData, err = remote.Speak(context.Background(), clean)

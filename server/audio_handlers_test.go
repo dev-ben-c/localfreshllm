@@ -139,7 +139,7 @@ func TestHandleSpeak_WrongMethod(t *testing.T) {
 
 func TestHandleSpeak_EmptyText(t *testing.T) {
 	srv := &Server{
-		piper: audio.NewPiperTTS("/nonexistent/model"),
+		piper: audio.NewPiperTTS("/nonexistent/model", ""),
 	}
 
 	body, _ := json.Marshal(map[string]string{"text": ""})
@@ -157,7 +157,7 @@ func TestHandleSpeak_EmptyText(t *testing.T) {
 
 func TestHandleSpeak_InvalidJSON(t *testing.T) {
 	srv := &Server{
-		piper: audio.NewPiperTTS("/nonexistent/model"),
+		piper: audio.NewPiperTTS("/nonexistent/model", ""),
 	}
 
 	req := httptest.NewRequest(http.MethodPost, "/v1/audio/speak", bytes.NewReader([]byte("not json")))

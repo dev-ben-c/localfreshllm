@@ -22,8 +22,9 @@ type Server struct {
 
 // AudioConfig holds optional audio service configuration.
 type AudioConfig struct {
-	WhisperURL string
-	PiperModel string
+	WhisperURL   string
+	PiperModel   string
+	PiperSpeaker string
 }
 
 // New creates a new server instance.
@@ -43,7 +44,7 @@ func NewWithAudio(addr, masterKey string, audioCfg AudioConfig) *Server {
 		s.whisper = audio.NewWhisperClient(audioCfg.WhisperURL)
 	}
 	if audioCfg.PiperModel != "" {
-		s.piper = audio.NewPiperTTS(audioCfg.PiperModel)
+		s.piper = audio.NewPiperTTS(audioCfg.PiperModel, audioCfg.PiperSpeaker)
 	}
 	return s
 }

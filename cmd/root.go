@@ -206,6 +206,7 @@ func runTUI(b backend.Backend, sysPrompt string, store *session.Store, sess *ses
 		RenderMD:     flagRender,
 		IsClient:     isClient,
 		PiperModel:   detectPiperModel(),
+		PiperSpeaker: detectPiperSpeaker(),
 		WhisperURL:   detectWhisperURL(),
 	})
 
@@ -215,8 +216,10 @@ func runTUI(b backend.Backend, sysPrompt string, store *session.Store, sess *ses
 }
 
 // detectPiperModel checks common paths for a piper voice model.
+// Prefers the British semaine model (Cedric's voice).
 func detectPiperModel() string {
 	candidates := []string{
+		"/opt/piper/models/en_GB-semaine-medium.onnx",
 		"/opt/piper/models/en_US-kristin-medium.onnx",
 		"/opt/piper/models/en_US-lessac-medium.onnx",
 	}
@@ -224,6 +227,16 @@ func detectPiperModel() string {
 		if _, err := os.Stat(p); err == nil {
 			return p
 		}
+	}
+	return ""
+}
+
+// detectPiperSpeaker returns the speaker ID for the detected model.
+// For semaine, uses speaker 1 (spike).
+func detectPiperSpeaker() string {
+	model := detectPiperModel()
+	if strings.Contains(model, "semaine") {
+		return "1"
 	}
 	return ""
 }

@@ -13,11 +13,12 @@ import (
 // PiperTTS runs Piper TTS as a subprocess to convert text to speech.
 type PiperTTS struct {
 	ModelPath string
+	Speaker   string // Speaker ID for multi-speaker models (e.g. "1").
 }
 
 // NewPiperTTS creates a TTS instance using the given Piper model.
-func NewPiperTTS(modelPath string) *PiperTTS {
-	return &PiperTTS{ModelPath: modelPath}
+func NewPiperTTS(modelPath, speaker string) *PiperTTS {
+	return &PiperTTS{ModelPath: modelPath, Speaker: speaker}
 }
 
 // Speak converts text to WAV audio using Piper.
@@ -45,12 +46,16 @@ func (p *PiperTTS) Speak(ctx context.Context, text string) ([]byte, error) {
 		}
 	}
 
-	cmd := exec.CommandContext(ctx, piperBin,
+	args := []string{
 		"--model", p.ModelPath,
 		"--output_file", "-",
 		"--length_scale", "0.8",
 		"--quiet",
-	)
+	}
+	if p.Speaker != "" {
+		args = append(args, "--speaker", p.Speaker)
+	}
+	cmd := exec.CommandContext(ctx, piperBin, args...)
 
 	// Piper's bundled libs (espeak-ng, onnxruntime) live next to the binary.
 	cmd.Env = append(os.Environ(), "LD_LIBRARY_PATH="+piperDir)

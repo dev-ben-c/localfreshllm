@@ -39,6 +39,7 @@ type Config struct {
 	RenderMD     bool
 	IsClient     bool
 	PiperModel   string
+	PiperSpeaker string
 	WhisperURL   string
 }
 

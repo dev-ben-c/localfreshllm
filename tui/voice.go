@@ -9,7 +9,7 @@ import (
 	"github.com/rabidclock/localfreshllm/audio/capture"
 )
 
-const wakeWord = "lemon"
+const wakeWord = "cedric"
 
 // voiceSegmentMsg carries a detected speech segment from the listener.
 type voiceSegmentMsg struct {

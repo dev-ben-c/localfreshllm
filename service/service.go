@@ -55,6 +55,10 @@ func (s *ChatService) Chat(ctx context.Context, b backend.Backend, req ChatReque
 	toolDefs := getToolDefs(req.Model, req.EnableTools)
 	sysPrompt := req.SystemPrompt
 
+	if req.Location != "" {
+		sysPrompt = sysPrompt + fmt.Sprintf("\n\nThe user's location is %s. Use this as the default for weather and location-aware queries.", req.Location)
+	}
+
 	var executor *tools.Executor
 	if toolDefs != nil {
 		executor = tools.NewExecutor()

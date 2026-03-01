@@ -46,7 +46,7 @@ var rootCmd = &cobra.Command{
 }
 
 func init() {
-	rootCmd.Flags().StringVarP(&flagModel, "model", "m", "claude-opus-4-6", "Model name")
+	rootCmd.Flags().StringVarP(&flagModel, "model", "m", "qwen3:32b", "Model name")
 	rootCmd.Flags().StringVarP(&flagSystem, "system", "s", "", "Custom system prompt")
 	rootCmd.Flags().StringVarP(&flagPersona, "persona", "p", "", "Named preset (coder, reviewer, writer, shell)")
 	rootCmd.Flags().BoolVar(&flagList, "list", false, "List available models")

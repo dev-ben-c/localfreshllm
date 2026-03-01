@@ -144,7 +144,18 @@ func chatWithTools(ctx context.Context, b backend.Backend, model string, message
 	for i := 0; i < 5; i++ {
 		result, err := b.Chat(ctx, model, messages, sysPrompt, toolDefs, onToken)
 		if err != nil {
-			return result.Text, newMessages, err
+			// If the model doesn't support tools, retry without them.
+			if toolDefs != nil && strings.Contains(err.Error(), "does not support tools") {
+				toolDefs = nil
+				result, err = b.Chat(ctx, model, messages, sysPrompt, nil, onToken)
+			}
+			if err != nil {
+				text := ""
+				if result != nil {
+					text = result.Text
+				}
+				return text, newMessages, err
+			}
 		}
 
 		if len(result.ToolCalls) == 0 || toolDefs == nil {
@@ -194,7 +205,11 @@ func chatWithTools(ctx context.Context, b backend.Backend, model string, message
 	// Hit max iterations — do a final call without tools.
 	result, err := b.Chat(ctx, model, messages, sysPrompt, nil, onToken)
 	if err != nil {
-		return result.Text, newMessages, err
+		text := ""
+		if result != nil {
+			text = result.Text
+		}
+		return text, newMessages, err
 	}
 	return result.Text, newMessages, nil
 }

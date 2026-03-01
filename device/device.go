@@ -46,6 +46,9 @@ func NewStore() *Store {
 
 // Register creates a new device profile after validating the registration key.
 func (s *Store) Register(name, registrationKey, masterKey string) (*Profile, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	if registrationKey != masterKey {
 		return nil, fmt.Errorf("invalid registration key")
 	}

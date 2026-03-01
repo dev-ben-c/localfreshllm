@@ -2,9 +2,19 @@ package server
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
+	"strings"
+)
+
+// Request body size limits.
+const (
+	maxJSONBodySize  = 1 << 20  // 1 MB for JSON requests
+	maxAudioBodySize = 50 << 20 // 50 MB for audio uploads
+	maxTTSTextLen    = 10000    // 10K chars for TTS input
 )
 
 // handleTranscribe accepts raw PCM audio (16kHz, 16-bit mono) and returns transcribed text.
@@ -14,35 +24,49 @@ import (
 // Response: {"text": "..."}
 func (s *Server) handleTranscribe(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		http.Error(w, `{"error":"method not allowed"}`, http.StatusMethodNotAllowed)
+		jsonError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
 
 	if s.whisper == nil {
-		http.Error(w, `{"error":"speech-to-text not configured (start server with --whisper-url)"}`, http.StatusNotImplemented)
+		jsonError(w, http.StatusNotImplemented, "speech-to-text not configured (start server with --whisper-url)")
 		return
 	}
 
-	pcmData, err := io.ReadAll(io.LimitReader(r.Body, 50*1024*1024)) // 50 MB max
+	// Content-type validation: reject if set but not application/octet-stream.
+	ct := r.Header.Get("Content-Type")
+	if ct != "" && !strings.HasPrefix(ct, "application/octet-stream") {
+		jsonError(w, http.StatusUnsupportedMediaType, "Content-Type must be application/octet-stream")
+		return
+	}
+
+	// Enforce body size limit — returns 413 on overflow.
+	r.Body = http.MaxBytesReader(w, r.Body, maxAudioBodySize)
+	pcmData, err := io.ReadAll(r.Body)
 	if err != nil {
-		http.Error(w, fmt.Sprintf(`{"error":"read body: %s"}`, err.Error()), http.StatusBadRequest)
+		var maxBytesErr *http.MaxBytesError
+		if errors.As(err, &maxBytesErr) {
+			jsonError(w, http.StatusRequestEntityTooLarge, "request body too large")
+			return
+		}
+		jsonError(w, http.StatusBadRequest, "failed to read request body")
+		log.Printf("read transcribe body: %v", err)
 		return
 	}
 
 	if len(pcmData) == 0 {
-		http.Error(w, `{"error":"empty audio data"}`, http.StatusBadRequest)
+		jsonError(w, http.StatusBadRequest, "empty audio data")
 		return
 	}
 
 	text, err := s.whisper.Transcribe(r.Context(), pcmData)
 	if err != nil {
-		http.Error(w, fmt.Sprintf(`{"error":"transcription failed: %s"}`, err.Error()), http.StatusInternalServerError)
+		jsonError(w, http.StatusInternalServerError, "transcription failed")
+		log.Printf("transcription failed: %v", err)
 		return
 	}
 
-	resp, _ := json.Marshal(map[string]string{"text": text})
-	w.Header().Set("Content-Type", "application/json")
-	w.Write(resp)
+	jsonOK(w, map[string]string{"text": text})
 }
 
 // handleSpeak accepts a text string and returns WAV audio.
@@ -52,31 +76,51 @@ func (s *Server) handleTranscribe(w http.ResponseWriter, r *http.Request) {
 // Response: audio/wav
 func (s *Server) handleSpeak(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		http.Error(w, `{"error":"method not allowed"}`, http.StatusMethodNotAllowed)
+		jsonError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
 
 	if s.piper == nil {
-		http.Error(w, `{"error":"text-to-speech not configured (start server with --piper-model)"}`, http.StatusNotImplemented)
+		jsonError(w, http.StatusNotImplemented, "text-to-speech not configured (start server with --piper-model)")
 		return
 	}
 
+	// Content-type validation: reject if set but not application/json.
+	ct := r.Header.Get("Content-Type")
+	if ct != "" && !strings.HasPrefix(ct, "application/json") {
+		jsonError(w, http.StatusUnsupportedMediaType, "Content-Type must be application/json")
+		return
+	}
+
+	// Enforce body size limit.
+	r.Body = http.MaxBytesReader(w, r.Body, maxJSONBodySize)
 	var req struct {
 		Text string `json:"text"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, `{"error":"invalid request body"}`, http.StatusBadRequest)
+		var maxBytesErr *http.MaxBytesError
+		if errors.As(err, &maxBytesErr) {
+			jsonError(w, http.StatusRequestEntityTooLarge, "request body too large")
+			return
+		}
+		jsonError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
 
 	if req.Text == "" {
-		http.Error(w, `{"error":"text is required"}`, http.StatusBadRequest)
+		jsonError(w, http.StatusBadRequest, "text is required")
+		return
+	}
+
+	if len(req.Text) > maxTTSTextLen {
+		jsonError(w, http.StatusBadRequest, fmt.Sprintf("text too long (max %d characters)", maxTTSTextLen))
 		return
 	}
 
 	wavData, err := s.piper.Speak(r.Context(), req.Text)
 	if err != nil {
-		http.Error(w, fmt.Sprintf(`{"error":"speech synthesis failed: %s"}`, err.Error()), http.StatusInternalServerError)
+		jsonError(w, http.StatusInternalServerError, "speech synthesis failed")
+		log.Printf("speech synthesis failed: %v", err)
 		return
 	}
 

@@ -6,9 +6,27 @@ import (
 	"fmt"
 	"io"
 	"os/exec"
+	"regexp"
 	"strings"
 	"sync"
 )
+
+// deviceNameRe matches safe audio device names (alphanumeric, dots, colons, commas, hyphens, underscores).
+var deviceNameRe = regexp.MustCompile(`^[a-zA-Z0-9._:,\-]+$`)
+
+// ValidateDevice checks that a device name is safe for use as a subprocess argument.
+func ValidateDevice(name string) error {
+	if name == "" {
+		return nil // empty means system default
+	}
+	if len(name) > 256 {
+		return fmt.Errorf("device name too long (max 256 characters)")
+	}
+	if !deviceNameRe.MatchString(name) {
+		return fmt.Errorf("invalid device name: must contain only alphanumeric, dot, colon, comma, hyphen, or underscore characters")
+	}
+	return nil
+}
 
 // Recorder captures audio from the microphone using system audio tools.
 // No CGO — uses parec (PipeWire/PulseAudio) or arecord (ALSA) as subprocesses.
@@ -49,6 +67,10 @@ func (r *Recorder) Start(ctx context.Context) error {
 
 	if r.running {
 		return fmt.Errorf("already recording")
+	}
+
+	if err := ValidateDevice(r.Device); err != nil {
+		return err
 	}
 
 	be, err := detect()

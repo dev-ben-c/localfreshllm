@@ -3,7 +3,9 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -11,6 +13,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/rabidclock/localfreshllm/backend"
+	"github.com/rabidclock/localfreshllm/device"
 	"github.com/rabidclock/localfreshllm/service"
 	"github.com/rabidclock/localfreshllm/session"
 	"github.com/rabidclock/localfreshllm/systemprompt"
@@ -40,66 +43,98 @@ type deviceUpdateRequest struct {
 	Persona  string `json:"persona,omitempty"`
 }
 
+// parseChatRequest decodes and validates the chat request body.
+func parseChatRequest(r *http.Request) (*chatRequest, error) {
+	r.Body = http.MaxBytesReader(nil, r.Body, maxJSONBodySize)
+	var req chatRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(req.Message) == "" {
+		return nil, fmt.Errorf("message is required")
+	}
+	return &req, nil
+}
+
+// chatConfig holds resolved configuration for a chat request.
+type chatConfig struct {
+	Model       string
+	SysPrompt   string
+	Location    string
+	EnableTools bool
+}
+
+// resolveChatConfig resolves the model, system prompt, location, and tools
+// from request and device profile defaults.
+func resolveChatConfig(req *chatRequest, dev *device.Profile) chatConfig {
+	cfg := chatConfig{
+		Model:       "qwen3:32b",
+		EnableTools: true,
+	}
+
+	if dev.Model != "" {
+		cfg.Model = dev.Model
+	}
+	if req.Model != "" {
+		cfg.Model = req.Model
+	}
+
+	cfg.SysPrompt = systemprompt.Get(req.SystemPrompt, req.Persona)
+	if cfg.SysPrompt == "" && dev.Persona != "" {
+		cfg.SysPrompt = systemprompt.Get("", dev.Persona)
+	}
+
+	cfg.Location = dev.Location
+
+	if req.EnableTools != nil {
+		cfg.EnableTools = *req.EnableTools
+	}
+
+	return cfg
+}
+
 func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		http.Error(w, `{"error":"method not allowed"}`, http.StatusMethodNotAllowed)
+		jsonError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
 
 	dev := DeviceFromContext(r.Context())
 	if dev == nil {
-		http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
+		jsonError(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
 
-	var req chatRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, `{"error":"invalid request body"}`, http.StatusBadRequest)
+	req, err := parseChatRequest(r)
+	if err != nil {
+		var maxBytesErr *http.MaxBytesError
+		if errors.As(err, &maxBytesErr) {
+			jsonError(w, http.StatusRequestEntityTooLarge, "request body too large")
+			return
+		}
+		if err.Error() == "message is required" {
+			jsonError(w, http.StatusBadRequest, "message is required")
+			return
+		}
+		jsonError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
 
-	if strings.TrimSpace(req.Message) == "" {
-		http.Error(w, `{"error":"message is required"}`, http.StatusBadRequest)
-		return
-	}
-
-	// Resolve model: request > device profile > default.
-	model := "qwen3:32b"
-	if dev.Model != "" {
-		model = dev.Model
-	}
-	if req.Model != "" {
-		model = req.Model
-	}
-
-	// Resolve system prompt.
-	sysPrompt := systemprompt.Get(req.SystemPrompt, req.Persona)
-	if sysPrompt == "" && dev.Persona != "" {
-		sysPrompt = systemprompt.Get("", dev.Persona)
-	}
-
-	// Resolve location.
-	location := dev.Location
-
-	// Resolve tools.
-	enableTools := true
-	if req.EnableTools != nil {
-		enableTools = *req.EnableTools
-	}
+	cfg := resolveChatConfig(req, dev)
 
 	// Load or create session.
 	store := s.devices.SessionStore(dev.ID)
 	var sess *session.Session
 	if req.SessionID != "" {
-		var err error
 		sess, err = store.FindByPrefix(req.SessionID)
 		if err != nil {
-			http.Error(w, fmt.Sprintf(`{"error":"session not found: %s"}`, err.Error()), http.StatusNotFound)
+			jsonError(w, http.StatusNotFound, "session not found")
+			log.Printf("session lookup failed for prefix %q: %v", req.SessionID, err)
 			return
 		}
 	}
 	if sess == nil {
-		sess = session.NewSession(uuid.New().String()[:8], model)
+		sess = session.NewSession(uuid.New().String()[:8], cfg.Model)
 	}
 
 	sess.AddMessage("user", req.Message)
@@ -110,25 +145,26 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Connection", "keep-alive")
 	w.Header().Set("X-Accel-Buffering", "no")
 
-	b := backend.ForModel(model)
+	b := backend.ForModel(cfg.Model)
 	if err := b.Validate(); err != nil {
 		// Fall back to first Ollama model.
 		ollama := backend.NewOllama()
 		models, listErr := ollama.ListModels(r.Context())
 		if listErr != nil || len(models) == 0 {
-			WriteEvent(w, "error", fmt.Sprintf(`{"text":"backend unavailable: %s"}`, err.Error()))
+			WriteEvent(w, "error", `{"text":"backend unavailable"}`)
+			log.Printf("backend validation failed: %v", err)
 			return
 		}
-		model = models[0]
+		cfg.Model = models[0]
 		b = ollama
 	}
 
 	chatReq := service.ChatRequest{
-		Model:        model,
+		Model:        cfg.Model,
 		Messages:     sess.Messages,
-		SystemPrompt: sysPrompt,
-		Location:     location,
-		EnableTools:  enableTools,
+		SystemPrompt: cfg.SysPrompt,
+		Location:     cfg.Location,
+		EnableTools:  cfg.EnableTools,
 	}
 
 	ctx := r.Context()
@@ -156,8 +192,8 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 				sess.AddMessage("assistant", ev.Text)
 			}
 			if saveErr := store.Save(sess); saveErr != nil {
-				data, _ := json.Marshal(map[string]string{"text": fmt.Sprintf("failed to save session: %s", saveErr.Error())})
-				WriteEvent(w, "error", string(data))
+				WriteEvent(w, "error", `{"text":"failed to save session"}`)
+				log.Printf("save session %s: %v", sess.ID, saveErr)
 			}
 			data, _ := json.Marshal(map[string]string{"text": ev.Text, "session_id": sess.ID})
 			WriteEvent(w, "done", string(data))
@@ -167,8 +203,8 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 	response, _, err := s.chatService.Chat(ctx, b, chatReq, emit)
 	_ = response
 	if err != nil && ctx.Err() == nil {
-		data, _ := json.Marshal(map[string]string{"text": err.Error()})
-		WriteEvent(w, "error", string(data))
+		WriteEvent(w, "error", `{"text":"chat request failed"}`)
+		log.Printf("chat error: %v", err)
 	}
 
 	// Update last seen.
@@ -178,61 +214,69 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleModels(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
-		http.Error(w, `{"error":"method not allowed"}`, http.StatusMethodNotAllowed)
+		jsonError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
 
 	models := service.ListModels(r.Context())
-	data, _ := json.Marshal(map[string][]string{"models": models})
-	w.Header().Set("Content-Type", "application/json")
-	w.Write(data)
+	jsonOK(w, map[string][]string{"models": models})
 }
 
 func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		http.Error(w, `{"error":"method not allowed"}`, http.StatusMethodNotAllowed)
+		jsonError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
 
+	r.Body = http.MaxBytesReader(w, r.Body, maxJSONBodySize)
 	var req registerRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, `{"error":"invalid request body"}`, http.StatusBadRequest)
+		var maxBytesErr *http.MaxBytesError
+		if errors.As(err, &maxBytesErr) {
+			jsonError(w, http.StatusRequestEntityTooLarge, "request body too large")
+			return
+		}
+		jsonError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
 
 	profile, err := s.devices.Register(req.Name, req.RegistrationKey, s.masterKey)
 	if err != nil {
-		status := http.StatusBadRequest
 		if strings.Contains(err.Error(), "invalid registration key") {
-			status = http.StatusForbidden
+			jsonError(w, http.StatusForbidden, "invalid registration key")
+			return
 		}
-		http.Error(w, fmt.Sprintf(`{"error":"%s"}`, err.Error()), status)
+		jsonError(w, http.StatusBadRequest, "registration failed")
+		log.Printf("device registration failed: %v", err)
 		return
 	}
 
-	data, _ := json.Marshal(profile)
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
-	w.Write(data)
+	json.NewEncoder(w).Encode(profile)
 }
 
 func (s *Server) handleDeviceMe(w http.ResponseWriter, r *http.Request) {
 	dev := DeviceFromContext(r.Context())
 	if dev == nil {
-		http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
+		jsonError(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
 
 	switch r.Method {
 	case http.MethodGet:
-		data, _ := json.Marshal(dev)
-		w.Header().Set("Content-Type", "application/json")
-		w.Write(data)
+		jsonOK(w, dev)
 
 	case http.MethodPut:
+		r.Body = http.MaxBytesReader(w, r.Body, maxJSONBodySize)
 		var req deviceUpdateRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			http.Error(w, `{"error":"invalid request body"}`, http.StatusBadRequest)
+			var maxBytesErr *http.MaxBytesError
+			if errors.As(err, &maxBytesErr) {
+				jsonError(w, http.StatusRequestEntityTooLarge, "request body too large")
+				return
+			}
+			jsonError(w, http.StatusBadRequest, "invalid request body")
 			return
 		}
 		if req.Name != "" {
@@ -248,22 +292,21 @@ func (s *Server) handleDeviceMe(w http.ResponseWriter, r *http.Request) {
 			dev.Persona = req.Persona
 		}
 		if err := s.devices.Update(dev); err != nil {
-			http.Error(w, fmt.Sprintf(`{"error":"update failed: %s"}`, err.Error()), http.StatusInternalServerError)
+			jsonError(w, http.StatusInternalServerError, "update failed")
+			log.Printf("device update failed for %s: %v", dev.ID, err)
 			return
 		}
-		data, _ := json.Marshal(dev)
-		w.Header().Set("Content-Type", "application/json")
-		w.Write(data)
+		jsonOK(w, dev)
 
 	default:
-		http.Error(w, `{"error":"method not allowed"}`, http.StatusMethodNotAllowed)
+		jsonError(w, http.StatusMethodNotAllowed, "method not allowed")
 	}
 }
 
 func (s *Server) handleSessions(w http.ResponseWriter, r *http.Request) {
 	dev := DeviceFromContext(r.Context())
 	if dev == nil {
-		http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
+		jsonError(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
 
@@ -273,7 +316,8 @@ func (s *Server) handleSessions(w http.ResponseWriter, r *http.Request) {
 	case http.MethodGet:
 		sessions, err := store.List()
 		if err != nil {
-			http.Error(w, fmt.Sprintf(`{"error":"list sessions: %s"}`, err.Error()), http.StatusInternalServerError)
+			jsonError(w, http.StatusInternalServerError, "failed to list sessions")
+			log.Printf("list sessions for device %s: %v", dev.ID, err)
 			return
 		}
 		type sessionSummary struct {
@@ -293,26 +337,24 @@ func (s *Server) handleSessions(w http.ResponseWriter, r *http.Request) {
 				Preview:   sess.Preview(),
 			})
 		}
-		data, _ := json.Marshal(map[string]any{"sessions": summaries})
-		w.Header().Set("Content-Type", "application/json")
-		w.Write(data)
+		jsonOK(w, map[string]any{"sessions": summaries})
 
 	default:
-		http.Error(w, `{"error":"method not allowed"}`, http.StatusMethodNotAllowed)
+		jsonError(w, http.StatusMethodNotAllowed, "method not allowed")
 	}
 }
 
 func (s *Server) handleSession(w http.ResponseWriter, r *http.Request) {
 	dev := DeviceFromContext(r.Context())
 	if dev == nil {
-		http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
+		jsonError(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
 
 	// Extract session ID from path: /v1/sessions/{id}
 	parts := strings.Split(strings.TrimPrefix(r.URL.Path, "/v1/sessions/"), "/")
 	if len(parts) == 0 || parts[0] == "" {
-		http.Error(w, `{"error":"session ID required"}`, http.StatusBadRequest)
+		jsonError(w, http.StatusBadRequest, "session ID required")
 		return
 	}
 	sessionID := parts[0]
@@ -323,27 +365,26 @@ func (s *Server) handleSession(w http.ResponseWriter, r *http.Request) {
 	case http.MethodGet:
 		sess, err := store.FindByPrefix(sessionID)
 		if err != nil {
-			http.Error(w, fmt.Sprintf(`{"error":"%s"}`, err.Error()), http.StatusNotFound)
+			jsonError(w, http.StatusNotFound, "session not found")
 			return
 		}
-		data, _ := json.Marshal(sess)
-		w.Header().Set("Content-Type", "application/json")
-		w.Write(data)
+		jsonOK(w, sess)
 
 	case http.MethodDelete:
 		sess, err := store.FindByPrefix(sessionID)
 		if err != nil {
-			http.Error(w, fmt.Sprintf(`{"error":"%s"}`, err.Error()), http.StatusNotFound)
+			jsonError(w, http.StatusNotFound, "session not found")
 			return
 		}
 		if err := store.Delete(sess.ID); err != nil {
-			http.Error(w, fmt.Sprintf(`{"error":"delete failed: %s"}`, err.Error()), http.StatusInternalServerError)
+			jsonError(w, http.StatusInternalServerError, "delete failed")
+			log.Printf("delete session %s: %v", sess.ID, err)
 			return
 		}
 		w.WriteHeader(http.StatusNoContent)
 
 	default:
-		http.Error(w, `{"error":"method not allowed"}`, http.StatusMethodNotAllowed)
+		jsonError(w, http.StatusMethodNotAllowed, "method not allowed")
 	}
 }
 
@@ -352,10 +393,8 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
 	defer cancel()
 	models := service.ListModels(ctx)
-	data, _ := json.Marshal(map[string]any{
+	jsonOK(w, map[string]any{
 		"status": "ok",
 		"models": len(models),
 	})
-	w.Header().Set("Content-Type", "application/json")
-	w.Write(data)
 }

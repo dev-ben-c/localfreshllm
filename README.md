@@ -81,8 +81,9 @@ The interactive mode launches a full-screen Bubble Tea TUI with:
 - **Scrollable chat viewport** — PgUp/PgDn to browse history
 - **Text input with history** — Up/Down arrow to recall previous messages
 - **Streaming responses** — tokens appear in real-time, markdown rendered on completion
-- **Slash commands** — model switching, tool toggling, TTS, and more
+- **Slash commands** — model switching, tool toggling, TTS, timers, and more
 - **Text-to-speech** — toggle with `/tts`, responses are spoken aloud via Piper
+- **Voice mode** — continuous listening with wake word detection
 
 ```
 ┌─────────────────────────────────────────┐
@@ -108,7 +109,11 @@ The interactive mode launches a full-screen Bubble Tea TUI with:
 | `/location <city>` | Set location for weather tools |
 | `/tools` | Toggle web search tools |
 | `/tts` | Toggle text-to-speech |
-| `/voice` | Voice input (Ctrl+Space / F5) |
+| `/voice` | Toggle voice mode (wake word: "Cedric") |
+| `/timer <dur> [name]` | Start a countdown timer |
+| `/timer cancel <N>` | Cancel timer by number |
+| `/timers` | List active timers |
+| `/device` | List or select audio input device |
 | `/quit` | Exit |
 
 ### Navigation
@@ -118,7 +123,29 @@ The interactive mode launches a full-screen Bubble Tea TUI with:
 | PgUp / PgDn | Scroll chat viewport |
 | Up / Down | Recall input history |
 | Ctrl+C | Quit |
-| Ctrl+Space / F5 | Push-to-talk toggle (when mic enabled) |
+| Ctrl+Space / F5 | Toggle voice mode (when mic enabled) |
+
+### Voice Mode
+
+Voice mode enables continuous listening with automatic speech detection. Toggle it with `/voice` or Ctrl+Space / F5. When active, the mascot's persona "Cedric" serves as the wake word — say "Cedric" to activate, then speak naturally. Detected speech is automatically transcribed and sent as a message.
+
+### Natural Language Timers
+
+Set timers using slash commands or natural language in chat:
+
+- `/timer 5m` — 5 minute timer
+- `/timer 30s eggs` — 30 second timer named "eggs"
+- "Set a timer for 5 minutes"
+- "Set a 30 second timer called eggs"
+- "Timer for half an hour"
+
+### TTS Text Processing
+
+When TTS is enabled, responses are processed before speaking:
+
+- Code blocks and URLs are removed for cleaner speech
+- Common abbreviations are expanded (e.g., "Dr." → "Doctor")
+- Sentence boundaries insert natural pauses
 
 ## Tools
 
@@ -142,7 +169,8 @@ localfreshllm serve --addr 0.0.0.0:8400
 # With audio services enabled
 localfreshllm serve --addr 0.0.0.0:8400 \
   --whisper-url http://127.0.0.1:8081 \
-  --piper-model /opt/piper/models/en_US-kristin-medium.onnx
+  --piper-model /opt/piper/models/en_GB-semaine-medium.onnx \
+  --piper-speaker 1
 
 # Register a device
 curl -X POST http://<server>:8400/v1/devices/register \
@@ -188,15 +216,15 @@ Voice input and output are split across client and server to keep the client lig
 sudo mkdir -p /opt/piper/models
 curl -sL https://github.com/rhasspy/piper/releases/download/2023.11.14-2/piper_linux_x86_64.tar.gz | sudo tar xz -C /opt/piper --strip-components=1
 
-# Download a voice model (see https://rhasspy.github.io/piper-samples/ for options)
-sudo curl -sL -o /opt/piper/models/en_US-kristin-medium.onnx \
-  https://huggingface.co/rhasspy/piper-voices/resolve/v1.0.0/en/en_US/kristin/medium/en_US-kristin-medium.onnx
-sudo curl -sL -o /opt/piper/models/en_US-kristin-medium.onnx.json \
-  https://huggingface.co/rhasspy/piper-voices/resolve/v1.0.0/en/en_US/kristin/medium/en_US-kristin-medium.onnx.json
+# Download a multi-speaker voice model (see https://rhasspy.github.io/piper-samples/ for options)
+sudo curl -sL -o /opt/piper/models/en_GB-semaine-medium.onnx \
+  https://huggingface.co/rhasspy/piper-voices/resolve/v1.0.0/en/en_GB/semaine/medium/en_GB-semaine-medium.onnx
+sudo curl -sL -o /opt/piper/models/en_GB-semaine-medium.onnx.json \
+  https://huggingface.co/rhasspy/piper-voices/resolve/v1.0.0/en/en_GB/semaine/medium/en_GB-semaine-medium.onnx.json
 
-# Test it
+# Test it (speaker 1 = male voice)
 echo "Hello world" | LD_LIBRARY_PATH=/opt/piper /opt/piper/piper \
-  --model /opt/piper/models/en_US-kristin-medium.onnx --output_file test.wav --quiet
+  --model /opt/piper/models/en_GB-semaine-medium.onnx --speaker 1 --output_file test.wav --quiet
 ```
 
 The TUI auto-detects Piper at `/opt/piper/models/` on startup. Toggle TTS in the TUI with `/tts`.
@@ -224,6 +252,7 @@ The TUI auto-detects Piper at `/opt/piper/models/` on startup. Toggle TTS in the
 | `--key` | Master registration key |
 | `--whisper-url` | Whisper.cpp server URL for STT (e.g. `http://127.0.0.1:8081`) |
 | `--piper-model` | Piper TTS model path for speech synthesis |
+| `--piper-speaker` | Piper speaker ID for multi-speaker models (e.g. `1`) |
 
 ## Architecture
 
@@ -278,6 +307,7 @@ Built with these excellent open-source projects:
 - [Cobra](https://github.com/spf13/cobra) — CLI framework
 - [Piper](https://github.com/rhasspy/piper) — fast local neural text-to-speech
 - [Whisper.cpp](https://github.com/ggerganov/whisper.cpp) — speech-to-text inference
+- [localfreshsearch](https://github.com/dev-ben-c/localfreshsearch) — web search, page reading, and weather tools
 - [SearXNG](https://github.com/searxng/searxng) — metasearch engine for web search tools
 - [wttr.in](https://github.com/chubin/wttr.in) — weather data API
 - [Playwright for Go](https://github.com/playwright-community/playwright-go) — web page reading for search tools

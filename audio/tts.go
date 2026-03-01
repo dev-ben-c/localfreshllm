@@ -28,6 +28,9 @@ func (p *PiperTTS) Speak(ctx context.Context, text string) ([]byte, error) {
 	if text == "" {
 		return nil, fmt.Errorf("empty text")
 	}
+	if len(text) > 10000 {
+		return nil, fmt.Errorf("text too long (max 10000 characters)")
+	}
 
 	piperBin := "piper"
 	piperDir := filepath.Dir(p.ModelPath)

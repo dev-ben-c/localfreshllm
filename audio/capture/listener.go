@@ -43,6 +43,10 @@ func (l *Listener) Start(ctx context.Context) error {
 		return fmt.Errorf("listener already running")
 	}
 
+	if err := ValidateDevice(l.Device); err != nil {
+		return err
+	}
+
 	be, err := detect()
 	if err != nil {
 		return err

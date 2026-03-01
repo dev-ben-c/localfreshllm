@@ -344,7 +344,10 @@ simple_client() {
 
     echo
     print_header "Done!"
-    print_info "Run: source $(detect_shell_profile)"
+    print_warn "Run this before using localfreshllm (or open a new terminal):"
+    echo
+    echo "  source $(detect_shell_profile)"
+    echo
     print_info "Then: localfreshllm \"hello\""
 }
 

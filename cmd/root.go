@@ -69,7 +69,15 @@ func run(cmd *cobra.Command, args []string) error {
 	sysPrompt := systemprompt.Get(flagSystem, flagPersona)
 	b := backend.ForModel(flagModel)
 	if err := b.Validate(); err != nil {
-		return err
+		// Default Claude model unavailable — fall back to first Ollama model.
+		ollama := backend.NewOllama()
+		models, listErr := ollama.ListModels(context.Background())
+		if listErr != nil || len(models) == 0 {
+			return err
+		}
+		flagModel = models[0]
+		b = ollama
+		render.Infof("No API key — using %s", flagModel)
 	}
 	store := session.NewStore()
 

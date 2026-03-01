@@ -244,7 +244,7 @@ func helpText() string {
 		"  /clear         - clear conversation",
 		"  /history       - session history info",
 		"  /tools         - toggle web search tools",
-		"  /voice         - toggle voice mode (wake word: \"lemon\")",
+		"  /voice         - toggle voice mode (wake word: \"cedric\")",
 		"  /tts           - toggle text-to-speech",
 		"  /timer <dur>   - start a timer (e.g. 5m, 1h30m)",
 		"  /timer cancel  - cancel a timer by number",

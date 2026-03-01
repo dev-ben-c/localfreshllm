@@ -104,6 +104,9 @@ func sanitizeForTTS(text string) string {
 	text = reBullet.ReplaceAllString(text, "")
 	text = reNumbered.ReplaceAllString(text, "")
 
+	// Expand abbreviations and symbols for natural speech.
+	text = expandForSpeech(text)
+
 	// Remove characters that get read literally.
 	text = strings.NewReplacer(
 		"(", "", ")", "",
@@ -126,6 +129,77 @@ func sanitizeForTTS(text string) string {
 	// Collapse whitespace.
 	text = reWhitespace.ReplaceAllString(text, " ")
 	return strings.TrimSpace(text)
+}
+
+// US state abbreviations → full names.
+var stateAbbrevs = map[string]string{
+	"AL": "Alabama", "AK": "Alaska", "AZ": "Arizona", "AR": "Arkansas",
+	"CA": "California", "CO": "Colorado", "CT": "Connecticut", "DE": "Delaware",
+	"FL": "Florida", "GA": "Georgia", "HI": "Hawaii", "ID": "Idaho",
+	"IL": "Illinois", "IN": "Indiana", "IA": "Iowa", "KS": "Kansas",
+	"KY": "Kentucky", "LA": "Louisiana", "ME": "Maine", "MD": "Maryland",
+	"MA": "Massachusetts", "MI": "Michigan", "MN": "Minnesota", "MS": "Mississippi",
+	"MO": "Missouri", "MT": "Montana", "NE": "Nebraska", "NV": "Nevada",
+	"NH": "New Hampshire", "NJ": "New Jersey", "NM": "New Mexico", "NY": "New York",
+	"NC": "North Carolina", "ND": "North Dakota", "OH": "Ohio", "OK": "Oklahoma",
+	"OR": "Oregon", "PA": "Pennsylvania", "RI": "Rhode Island", "SC": "South Carolina",
+	"SD": "South Dakota", "TN": "Tennessee", "TX": "Texas", "UT": "Utah",
+	"VT": "Vermont", "VA": "Virginia", "WA": "Washington", "WV": "West Virginia",
+	"WI": "Wisconsin", "WY": "Wyoming", "DC": "District of Columbia",
+}
+
+// reStateAbbrev matches ", XX" where XX is a two-letter uppercase code (city, state pattern).
+var reStateAbbrev = regexp.MustCompile(`(,\s*)([A-Z]{2})\b`)
+
+// reDegrees matches temperature patterns like "18°C", "72°F", "18 °C".
+var reDegrees = regexp.MustCompile(`(\d+)\s*°\s*([CFcf])`)
+
+// rePercent matches "50%" patterns.
+var rePercent = regexp.MustCompile(`(\d+)%`)
+
+// expandForSpeech replaces abbreviations and symbols with spoken forms.
+func expandForSpeech(text string) string {
+	// Expand "City, FL" → "City, Florida".
+	text = reStateAbbrev.ReplaceAllStringFunc(text, func(match string) string {
+		m := reStateAbbrev.FindStringSubmatch(match)
+		if m == nil {
+			return match
+		}
+		if full, ok := stateAbbrevs[m[2]]; ok {
+			return m[1] + full
+		}
+		return match
+	})
+
+	// Expand "18°C" → "18 degrees Celsius", "72°F" → "72 degrees Fahrenheit".
+	text = reDegrees.ReplaceAllStringFunc(text, func(match string) string {
+		m := reDegrees.FindStringSubmatch(match)
+		if m == nil {
+			return match
+		}
+		unit := "Celsius"
+		if strings.ToUpper(m[2]) == "F" {
+			unit = "Fahrenheit"
+		}
+		return m[1] + " degrees " + unit
+	})
+
+	// Expand "50%" → "50 percent".
+	text = rePercent.ReplaceAllString(text, "${1} percent")
+
+	// Common abbreviations.
+	text = strings.NewReplacer(
+		"km/h", "kilometers per hour",
+		"mph", "miles per hour",
+		"m/s", "meters per second",
+		"e.g.", "for example",
+		"i.e.", "that is",
+		"etc.", "etcetera",
+		"vs.", "versus",
+		"approx.", "approximately",
+	).Replace(text)
+
+	return text
 }
 
 // isSpokenRune returns true for characters that make sense in spoken text.

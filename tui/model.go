@@ -543,7 +543,7 @@ func (m *Model) toggleVoiceMode() (tea.Model, tea.Cmd) {
 	if m.voiceMode {
 		m.messages = append(m.messages, chatMessage{
 			role:    "system",
-			content: "Voice mode enabled — say \"lemon\" followed by your message",
+			content: "Voice mode enabled — say \"Cedric\" followed by your message",
 		})
 		// Create a fresh listener each time (Stop kills the subprocess).
 		m.listener = &capture.Listener{}
@@ -614,7 +614,7 @@ func (m Model) View() string {
 	// Input area.
 	inputView := m.input.View()
 	if m.voiceMode && m.listening && m.state != stateStreaming {
-		inputView = render.DimStyle.Render("  Listening for \"lemon\"... (Ctrl+Space to stop)")
+		inputView = render.DimStyle.Render("  Listening for \"Cedric\"... (Ctrl+Space to stop)")
 	} else if m.state == stateStreaming {
 		inputView = render.DimStyle.Render("  waiting for response...")
 	}

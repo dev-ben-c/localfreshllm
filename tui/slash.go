@@ -19,6 +19,11 @@ type slashResult struct {
 	info      string
 	modelPick bool
 	ttsToggle bool
+
+	// Timer actions.
+	timerAdd    *Timer // Non-nil to create a new timer.
+	timerCancel int    // 1-based index to cancel, 0 means no cancel.
+	timerClear  bool   // Clear all timers.
 }
 
 type slashResultMsg = slashResult
@@ -62,6 +67,9 @@ func handleSlash(input string, cfg *Config) slashResult {
 
 	case "/tts":
 		return slashResult{ttsToggle: true}
+
+	case "/timer", "/timers":
+		return handleTimer(parts[1:])
 
 	case "/help":
 		return slashResult{info: helpText()}
@@ -178,6 +186,54 @@ func handleLocation(args []string, cfg *Config) slashResult {
 	return slashResult{info: fmt.Sprintf("Location set to %s", loc)}
 }
 
+func handleTimer(args []string) slashResult {
+	// /timer or /timers with no args → list (handled by model since it holds the timers).
+	if len(args) == 0 {
+		return slashResult{info: "_timer_list_"}
+	}
+
+	sub := args[0]
+
+	switch sub {
+	case "list":
+		return slashResult{info: "_timer_list_"}
+
+	case "cancel":
+		if len(args) < 2 {
+			return slashResult{info: "Usage: /timer cancel <number>"}
+		}
+		n, err := strconv.Atoi(args[1])
+		if err != nil || n < 1 || n > maxTimers {
+			return slashResult{info: fmt.Sprintf("Invalid timer number (1-%d)", maxTimers)}
+		}
+		return slashResult{timerCancel: n}
+
+	case "clear":
+		return slashResult{timerClear: true}
+
+	default:
+		// /timer <duration> [name...]
+		d, err := parseDuration(sub)
+		if err != nil {
+			return slashResult{info: err.Error()}
+		}
+		if d <= 0 {
+			return slashResult{info: "Duration must be positive"}
+		}
+		if d > maxDuration {
+			return slashResult{info: fmt.Sprintf("Maximum timer duration is %s", maxDuration)}
+		}
+		name := "timer"
+		if len(args) >= 2 {
+			name = strings.Join(args[1:], " ")
+		}
+		return slashResult{timerAdd: &Timer{
+			Name:     name,
+			Duration: d,
+		}}
+	}
+}
+
 func helpText() string {
 	return strings.Join([]string{
 		"Commands:",
@@ -189,6 +245,9 @@ func helpText() string {
 		"  /tools         - toggle web search tools",
 		"  /voice         - voice input info (Ctrl+Space / F5)",
 		"  /tts           - toggle text-to-speech",
+		"  /timer <dur>   - start a timer (e.g. 5m, 1h30m)",
+		"  /timer cancel  - cancel a timer by number",
+		"  /timers        - list active timers",
 		"  /quit          - exit",
 		"",
 		"Navigation:",
@@ -196,3 +255,4 @@ func helpText() string {
 		"  Up/Down         - input history",
 	}, "\n")
 }
+

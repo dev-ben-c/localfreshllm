@@ -44,6 +44,11 @@ var (
 	// DimStyle for secondary information.
 	DimStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("8"))
+
+	// TimerStyle for active timer countdowns.
+	TimerStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("3")).
+			Bold(true)
 )
 
 // RenderMarkdown renders markdown text using glamour with dark style.

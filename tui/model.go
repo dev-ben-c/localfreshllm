@@ -1,7 +1,9 @@
 package tui
 
 import (
+	"fmt"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/bubbles/viewport"
@@ -60,6 +62,9 @@ type Model struct {
 
 	ttsEnabled bool
 	player     *playback.Player
+
+	timers       []Timer
+	timerTicking bool
 
 	err error
 }
@@ -197,6 +202,36 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.rebuildViewport()
 		return m, textinput.Blink
 
+	case timerTickMsg:
+		expired := checkExpired(&m.timers)
+		if len(expired) > 0 {
+			// Fire expiry handling as a separate message.
+			return m, func() tea.Msg { return timerExpiredMsg{names: expired} }
+		}
+		m.rebuildViewport()
+		if len(m.timers) > 0 {
+			return m, timerTick()
+		}
+		m.timerTicking = false
+		return m, nil
+
+	case timerExpiredMsg:
+		for _, name := range msg.names {
+			m.messages = append(m.messages, chatMessage{
+				role:    "system",
+				content: fmt.Sprintf("Timer expired: %s", name),
+			})
+		}
+		m.rebuildViewport()
+		if m.ttsEnabled && len(msg.names) > 0 {
+			label := msg.names[0]
+			if len(msg.names) > 1 {
+				label = fmt.Sprintf("%d timers", len(msg.names))
+			}
+			return m, playTTS(m.cfg, m.player, label+" timer is done")
+		}
+		return m, nil
+
 	case audioPlayDoneMsg:
 		if msg.err != nil {
 			m.messages = append(m.messages, chatMessage{
@@ -219,8 +254,56 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			m.messages = append(m.messages, chatMessage{role: "system", content: "TTS " + status})
 		}
+		// Timer actions.
+		if msg.timerAdd != nil {
+			if len(m.timers) >= maxTimers {
+				m.messages = append(m.messages, chatMessage{role: "system", content: fmt.Sprintf("Maximum %d timers reached. Cancel one first.", maxTimers)})
+			} else {
+				t := *msg.timerAdd
+				t.Deadline = time.Now().Add(t.Duration)
+				m.timers = append(m.timers, t)
+				m.messages = append(m.messages, chatMessage{
+					role:    "system",
+					content: fmt.Sprintf("Timer started: %s (%s)", t.Name, formatRemaining(t.Duration)),
+				})
+				if !m.timerTicking {
+					m.timerTicking = true
+					m.rebuildViewport()
+					return m, timerTick()
+				}
+			}
+		}
+		if msg.timerCancel > 0 {
+			idx := msg.timerCancel - 1
+			if idx >= len(m.timers) {
+				m.messages = append(m.messages, chatMessage{role: "system", content: fmt.Sprintf("No timer #%d", msg.timerCancel)})
+			} else {
+				name := m.timers[idx].Name
+				m.timers = append(m.timers[:idx], m.timers[idx+1:]...)
+				m.messages = append(m.messages, chatMessage{role: "system", content: fmt.Sprintf("Cancelled timer: %s", name)})
+			}
+		}
+		if msg.timerClear {
+			n := len(m.timers)
+			m.timers = nil
+			m.messages = append(m.messages, chatMessage{role: "system", content: fmt.Sprintf("Cleared %d timer(s)", n)})
+		}
 		if msg.info != "" {
-			m.messages = append(m.messages, chatMessage{role: "system", content: msg.info})
+			// Special sentinel for timer list — we handle it here since Model owns the timers.
+			if msg.info == "_timer_list_" {
+				if len(m.timers) == 0 {
+					m.messages = append(m.messages, chatMessage{role: "system", content: "No active timers. Use /timer <duration> [name] to start one."})
+				} else {
+					var sb strings.Builder
+					sb.WriteString(fmt.Sprintf("Active timers (%d/%d):\n", len(m.timers), maxTimers))
+					for i, t := range m.timers {
+						sb.WriteString(fmt.Sprintf("  [%d] %s — %s remaining\n", i+1, t.Name, formatRemaining(t.Remaining())))
+					}
+					m.messages = append(m.messages, chatMessage{role: "system", content: sb.String()})
+				}
+			} else {
+				m.messages = append(m.messages, chatMessage{role: "system", content: msg.info})
+			}
 		}
 		if msg.modelPick {
 			m.state = stateModelPick
@@ -381,6 +464,9 @@ func (m Model) View() string {
 		ttsStatus = "on"
 	}
 	statusLine += "\n" + render.DimStyle.Render("tools: "+toolsStatus+"  tts: "+ttsStatus)
+	if ts := renderTimerStatus(m.timers); ts != "" {
+		statusLine += "\n" + render.TimerStyle.Render(ts)
+	}
 	statusLine += "\n" + render.DimStyle.Render("/help for commands")
 
 	mascotWidth := lipgloss.Width(mascotView)

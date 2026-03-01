@@ -60,9 +60,10 @@ func LemonThinkingFrames() []string {
 var (
 	mascotLeafStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("2"))
 	mascotBodyStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("3"))
+	mascotFaceStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("15"))
 )
 
-// RenderMascot renders mascot art with lipgloss styles (green leaf, yellow body).
+// RenderMascot renders mascot art with lipgloss styles (green leaf, yellow body, white face).
 func RenderMascot(art string) string {
 	lines := splitLines(art)
 	var result string
@@ -72,11 +73,22 @@ func RenderMascot(art string) string {
 		}
 		if i == 0 {
 			result += mascotLeafStyle.Render(line)
+		} else if i == 2 || i == 3 {
+			result += renderMascotFaceLine(line)
 		} else {
 			result += mascotBodyStyle.Render(line)
 		}
 	}
 	return result
+}
+
+// renderMascotFaceLine renders a body line with the center 3 face characters in white.
+func renderMascotFaceLine(line string) string {
+	runes := []rune(line)
+	if len(runes) < 11 {
+		return mascotBodyStyle.Render(line)
+	}
+	return mascotBodyStyle.Render(string(runes[:7])) + mascotFaceStyle.Render(string(runes[7:10])) + mascotBodyStyle.Render(string(runes[10:]))
 }
 
 // PrintLemonColored prints the lemon with the leaf in green and body in yellow.

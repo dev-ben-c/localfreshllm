@@ -26,7 +26,20 @@ type mascotTickMsg time.Time
 var (
 	leafStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("2"))
 	bodyStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("3"))
+	faceStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("15"))
 )
+
+// renderBodyLine renders a mascot body line, with white face on the eyes/mouth rows.
+func renderBodyLine(line string, hasFace bool) string {
+	if !hasFace {
+		return bodyStyle.Render(line)
+	}
+	runes := []rune(line)
+	if len(runes) < 11 {
+		return bodyStyle.Render(line)
+	}
+	return bodyStyle.Render(string(runes[:7])) + faceStyle.Render(string(runes[7:10])) + bodyStyle.Render(string(runes[10:]))
+}
 
 // Thinking frames with rotating dot patterns.
 var thinkingDots = []string{
@@ -87,18 +100,18 @@ func (m MascotModel) View() string {
 	case mascotThinking:
 		dots := thinkingDots[m.frame]
 		lines = append(lines, leafStyle.Render("        ⣠⠤⡀")+bodyStyle.Render(dots))
-		for _, line := range thinkingBody {
-			lines = append(lines, bodyStyle.Render(line))
+		for i, line := range thinkingBody {
+			lines = append(lines, renderBodyLine(line, i == 1 || i == 2))
 		}
 	case mascotSpeaking:
 		lines = append(lines, leafStyle.Render("        ⣠⠤⡀"))
-		for _, line := range speakingBody {
-			lines = append(lines, bodyStyle.Render(line))
+		for i, line := range speakingBody {
+			lines = append(lines, renderBodyLine(line, i == 1 || i == 2))
 		}
 	default:
 		lines = append(lines, leafStyle.Render("        ⣠⠤⡀"))
-		for _, line := range mascotBody {
-			lines = append(lines, bodyStyle.Render(line))
+		for i, line := range mascotBody {
+			lines = append(lines, renderBodyLine(line, i == 1 || i == 2))
 		}
 	}
 

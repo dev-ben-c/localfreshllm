@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"regexp"
+	"strconv"
 	"strings"
 	"unicode"
 
@@ -85,8 +86,12 @@ var (
 	reBullet = regexp.MustCompile(`(?m)^\s*[-*+]\s+`)
 	// Numbered list markers.
 	reNumbered = regexp.MustCompile(`(?m)^\s*\d+\.\s+`)
-	// Multiple whitespace/newlines.
+	// Newlines (one or more) — converted to sentence breaks.
+	reNewlines = regexp.MustCompile(`\n+`)
+	// Multiple whitespace.
 	reWhitespace = regexp.MustCompile(`\s+`)
+	// Redundant periods from newline conversion (e.g. ".\n" → ".. " → ".").
+	reMultiPeriod = regexp.MustCompile(`[.\s]*\.\s*\.`)
 )
 
 // sanitizeForTTS cleans LLM output for natural-sounding speech.
@@ -117,6 +122,9 @@ func sanitizeForTTS(text string) string {
 		"#", "", "```", "",
 	).Replace(text)
 
+	// Convert newlines to sentence breaks for natural pauses.
+	text = reNewlines.ReplaceAllString(text, ". ")
+
 	// Strip emojis and other non-speech unicode.
 	var b strings.Builder
 	for _, r := range text {
@@ -126,8 +134,9 @@ func sanitizeForTTS(text string) string {
 	}
 	text = b.String()
 
-	// Collapse whitespace.
+	// Collapse whitespace and redundant punctuation.
 	text = reWhitespace.ReplaceAllString(text, " ")
+	text = reMultiPeriod.ReplaceAllString(text, ".")
 	return strings.TrimSpace(text)
 }
 
@@ -156,6 +165,16 @@ var reDegrees = regexp.MustCompile(`(\d+)\s*°\s*([CFcf])`)
 
 // rePercent matches "50%" patterns.
 var rePercent = regexp.MustCompile(`(\d+)%`)
+
+// Month abbreviations → full names.
+var monthAbbrevs = map[string]string{
+	"Jan": "January", "Feb": "February", "Mar": "March", "Apr": "April",
+	"Jun": "June", "Jul": "July", "Aug": "August", "Sep": "September",
+	"Oct": "October", "Nov": "November", "Dec": "December",
+}
+
+// reMonthDay matches "Mar 1", "Dec 25", "Jan 03" etc.
+var reMonthDay = regexp.MustCompile(`\b(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\.?\s+(\d{1,2})\b`)
 
 // expandForSpeech replaces abbreviations and symbols with spoken forms.
 func expandForSpeech(text string) string {
@@ -187,6 +206,19 @@ func expandForSpeech(text string) string {
 	// Expand "50%" → "50 percent".
 	text = rePercent.ReplaceAllString(text, "${1} percent")
 
+	// Expand "Mar 1" → "March 1st", "Dec 25" → "December 25th".
+	text = reMonthDay.ReplaceAllStringFunc(text, func(match string) string {
+		m := reMonthDay.FindStringSubmatch(match)
+		if m == nil {
+			return match
+		}
+		month := m[1]
+		if full, ok := monthAbbrevs[month]; ok {
+			month = full
+		}
+		return month + " " + ordinal(m[2])
+	})
+
 	// Common abbreviations.
 	text = strings.NewReplacer(
 		"km/h", "kilometers per hour",
@@ -200,6 +232,28 @@ func expandForSpeech(text string) string {
 	).Replace(text)
 
 	return text
+}
+
+// ordinal converts a day number string to its ordinal form: "1" → "1st", "2" → "2nd", etc.
+func ordinal(day string) string {
+	n, err := strconv.Atoi(strings.TrimLeft(day, "0"))
+	if err != nil || n < 1 || n > 31 {
+		return day
+	}
+	suffix := "th"
+	if n%100 >= 11 && n%100 <= 13 {
+		// 11th, 12th, 13th
+	} else {
+		switch n % 10 {
+		case 1:
+			suffix = "st"
+		case 2:
+			suffix = "nd"
+		case 3:
+			suffix = "rd"
+		}
+	}
+	return fmt.Sprintf("%d%s", n, suffix)
 }
 
 // isSpokenRune returns true for characters that make sense in spoken text.

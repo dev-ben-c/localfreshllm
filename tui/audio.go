@@ -234,26 +234,27 @@ func expandForSpeech(text string) string {
 	return text
 }
 
-// ordinal converts a day number string to its ordinal form: "1" → "1st", "2" → "2nd", etc.
+// ordinalWords maps day numbers to their spoken form.
+var ordinalWords = map[int]string{
+	1: "first", 2: "second", 3: "third", 4: "fourth", 5: "fifth",
+	6: "sixth", 7: "seventh", 8: "eighth", 9: "ninth", 10: "tenth",
+	11: "eleventh", 12: "twelfth", 13: "thirteenth", 14: "fourteenth", 15: "fifteenth",
+	16: "sixteenth", 17: "seventeenth", 18: "eighteenth", 19: "nineteenth", 20: "twentieth",
+	21: "twenty first", 22: "twenty second", 23: "twenty third", 24: "twenty fourth",
+	25: "twenty fifth", 26: "twenty sixth", 27: "twenty seventh", 28: "twenty eighth",
+	29: "twenty ninth", 30: "thirtieth", 31: "thirty first",
+}
+
+// ordinal converts a day number string to its spoken word form: "1" → "first", "2" → "second", etc.
 func ordinal(day string) string {
 	n, err := strconv.Atoi(strings.TrimLeft(day, "0"))
 	if err != nil || n < 1 || n > 31 {
 		return day
 	}
-	suffix := "th"
-	if n%100 >= 11 && n%100 <= 13 {
-		// 11th, 12th, 13th
-	} else {
-		switch n % 10 {
-		case 1:
-			suffix = "st"
-		case 2:
-			suffix = "nd"
-		case 3:
-			suffix = "rd"
-		}
+	if word, ok := ordinalWords[n]; ok {
+		return word
 	}
-	return fmt.Sprintf("%d%s", n, suffix)
+	return day
 }
 
 // isSpokenRune returns true for characters that make sense in spoken text.

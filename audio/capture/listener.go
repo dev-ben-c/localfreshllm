@@ -26,6 +26,7 @@ const (
 // Listener continuously records audio and emits speech segments
 // using energy-based voice activity detection.
 type Listener struct {
+	Device  string // PulseAudio/ALSA source name (empty = system default).
 	mu      sync.Mutex
 	cmd     *exec.Cmd
 	stdout  io.ReadCloser
@@ -50,24 +51,7 @@ func (l *Listener) Start(ctx context.Context) error {
 	lCtx, cancel := context.WithCancel(ctx)
 	l.cancel = cancel
 
-	switch be {
-	case backendParec:
-		l.cmd = exec.CommandContext(lCtx, "parec",
-			"--format=s16le",
-			"--rate=16000",
-			"--channels=1",
-			"--raw",
-		)
-	case backendArecord:
-		l.cmd = exec.CommandContext(lCtx, "arecord",
-			"-f", "S16_LE",
-			"-r", "16000",
-			"-c", "1",
-			"-t", "raw",
-			"-q",
-			"-",
-		)
-	}
+	l.cmd = buildCaptureCmd(lCtx, be, l.Device)
 
 	stdout, err := l.cmd.StdoutPipe()
 	if err != nil {

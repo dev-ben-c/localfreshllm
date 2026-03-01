@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/rabidclock/localfreshllm/audio/capture"
 	"github.com/rabidclock/localfreshllm/backend"
 	"github.com/rabidclock/localfreshllm/client"
 	"github.com/rabidclock/localfreshllm/render"
@@ -65,6 +66,9 @@ func handleSlash(input string, cfg *Config) slashResult {
 
 	case "/voice":
 		return slashResult{voiceToggle: true}
+
+	case "/device":
+		return handleDevice(parts[1:], cfg)
 
 	case "/tts":
 		return slashResult{ttsToggle: true}
@@ -187,6 +191,60 @@ func handleLocation(args []string, cfg *Config) slashResult {
 	return slashResult{info: fmt.Sprintf("Location set to %s", loc)}
 }
 
+func handleDevice(args []string, cfg *Config) slashResult {
+	if len(args) == 0 {
+		// List available sources.
+		sources, err := capture.ListSources()
+		if err != nil {
+			return slashResult{info: fmt.Sprintf("Error listing devices: %v", err)}
+		}
+		if len(sources) == 0 {
+			return slashResult{info: "No audio input devices found."}
+		}
+
+		current := cfg.AudioDevice
+		if current == "" {
+			current = "(system default)"
+		}
+
+		var sb strings.Builder
+		sb.WriteString(fmt.Sprintf("Audio input: %s\n\nAvailable devices:\n", current))
+		for i, s := range sources {
+			marker := "  "
+			if s.Name == cfg.AudioDevice {
+				marker = "> "
+			}
+			sb.WriteString(fmt.Sprintf("%s[%d] %s\n", marker, i+1, s.Description))
+		}
+		sb.WriteString("\nUsage: /device <number> or /device <name>\n/device default — use system default")
+		return slashResult{info: sb.String()}
+	}
+
+	arg := strings.Join(args, " ")
+
+	if arg == "default" || arg == "reset" {
+		cfg.AudioDevice = ""
+		return slashResult{info: "Audio input set to system default"}
+	}
+
+	// Try as number.
+	if n, err := strconv.Atoi(arg); err == nil {
+		sources, listErr := capture.ListSources()
+		if listErr != nil {
+			return slashResult{info: fmt.Sprintf("Error: %v", listErr)}
+		}
+		if n < 1 || n > len(sources) {
+			return slashResult{info: fmt.Sprintf("Invalid device number (1-%d)", len(sources))}
+		}
+		cfg.AudioDevice = sources[n-1].Name
+		return slashResult{info: fmt.Sprintf("Audio input set to %s", sources[n-1].Description)}
+	}
+
+	// Use as literal device name.
+	cfg.AudioDevice = arg
+	return slashResult{info: fmt.Sprintf("Audio input set to %s", arg)}
+}
+
 func handleTimer(args []string) slashResult {
 	// /timer or /timers with no args → list (handled by model since it holds the timers).
 	if len(args) == 0 {
@@ -246,6 +304,7 @@ func helpText() string {
 		"  /tools         - toggle web search tools",
 		"  /voice         - toggle voice mode (wake word: \"cedric\")",
 		"  /tts           - toggle text-to-speech",
+		"  /device        - list or set audio input device",
 		"  /timer <dur>   - start a timer (e.g. 5m, 1h30m)",
 		"  /timer cancel  - cancel a timer by number",
 		"  /timers        - list active timers",

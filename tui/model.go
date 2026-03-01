@@ -41,6 +41,7 @@ type Config struct {
 	PiperModel   string
 	PiperSpeaker string
 	WhisperURL   string
+	AudioDevice  string
 }
 
 // Model is the top-level Bubble Tea model.
@@ -546,7 +547,7 @@ func (m *Model) toggleVoiceMode() (tea.Model, tea.Cmd) {
 			content: "Voice mode enabled — say \"Cedric\" followed by your message",
 		})
 		// Create a fresh listener each time (Stop kills the subprocess).
-		m.listener = &capture.Listener{}
+		m.listener = &capture.Listener{Device: m.cfg.AudioDevice}
 		m.listening = true
 		m.rebuildViewport()
 		return m, startAndListen(m.listener)

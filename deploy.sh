@@ -308,35 +308,43 @@ simple_client() {
         fi
     done
 
-    # Registration instructions
+    # Registration
     echo
     print_header "Device Registration"
-    print_info "Register this device on the server:"
+    read -rsp "  Enter the server's master key: " master_key
     echo
-    echo "  curl -X POST ${server_url}/v1/devices/register -H 'Content-Type: application/json' -d '{\"name\":\"$(hostname)\",\"registration_key\":\"<master-key>\"}'"
-    echo
-    print_info "Copy the \"token\" from the response, then enter it below."
-    echo
-
-    # API key
-    read -rsp "  API key (Bearer token): " api_key
-    echo
-    if [[ -z "$api_key" ]]; then
-        print_err "API key cannot be empty"
+    if [[ -z "$master_key" ]]; then
+        print_err "Master key cannot be empty"
         return 1
     fi
 
-    print_step "Validating API key..."
-    if curl -sf -H "Authorization: Bearer ${api_key}" "${server_url}/v1/devices/me" > /dev/null 2>&1; then
-        print_ok "API key is valid"
-    else
-        print_warn "Could not validate key via /v1/devices/me — continuing anyway"
+    print_step "Registering device '$(hostname)'..."
+    local reg_response
+    reg_response=$(curl -sf -X POST "${server_url}/v1/devices/register" \
+        -H 'Content-Type: application/json' \
+        -d "{\"name\":\"$(hostname)\",\"registration_key\":\"${master_key}\"}" 2>&1) || true
+
+    if [[ -z "$reg_response" ]]; then
+        print_err "Registration failed — no response from server"
+        return 1
     fi
+
+    # Try to extract token from JSON response
+    local api_key
+    api_key=$(echo "$reg_response" | grep -oP '"token"\s*:\s*"\K[^"]+' || true)
+
+    if [[ -z "$api_key" ]]; then
+        print_err "Registration failed: ${reg_response}"
+        return 1
+    fi
+
+    print_ok "Device registered"
 
     write_client_profile "$server_url" "$api_key"
 
     echo
     print_header "Done!"
+    print_info "Run: source $(detect_shell_profile)"
     print_info "Then: localfreshllm \"hello\""
 }
 

@@ -5,6 +5,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/rabidclock/localfreshllm/audio"
 	"github.com/rabidclock/localfreshllm/audio/capture"
 	"github.com/rabidclock/localfreshllm/audio/playback"
 	"github.com/rabidclock/localfreshllm/client"
@@ -75,14 +76,24 @@ func transcribeAudio(b interface{}, pcm []byte) tea.Cmd {
 	}
 }
 
-// playTTS requests TTS from the server and plays the resulting audio.
-func playTTS(b interface{}, p *playback.Player, text string) tea.Cmd {
+// playTTS synthesizes speech and plays it. Uses local piper if configured,
+// otherwise falls back to the remote server's /v1/audio/speak endpoint.
+func playTTS(cfg Config, p *playback.Player, text string) tea.Cmd {
 	return func() tea.Msg {
-		remote, ok := b.(*client.RemoteBackend)
-		if !ok {
+		var wavData []byte
+		var err error
+
+		if cfg.PiperModel != "" {
+			// Local piper.
+			piper := audio.NewPiperTTS(cfg.PiperModel)
+			wavData, err = piper.Speak(context.Background(), text)
+		} else if remote, ok := cfg.Backend.(*client.RemoteBackend); ok {
+			// Remote server.
+			wavData, err = remote.Speak(context.Background(), text)
+		} else {
 			return audioPlayDoneMsg{}
 		}
-		wavData, err := remote.Speak(context.Background(), text)
+
 		if err != nil {
 			return audioPlayDoneMsg{err: err}
 		}

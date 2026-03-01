@@ -18,6 +18,7 @@ type slashResult struct {
 	quit      bool
 	info      string
 	modelPick bool
+	ttsToggle bool
 }
 
 type slashResultMsg = slashResult
@@ -60,7 +61,7 @@ func handleSlash(input string, cfg *Config) slashResult {
 		return slashResult{info: "Voice toggle is handled via Ctrl+Space or F5 (requires client mode with --server)"}
 
 	case "/tts":
-		return slashResult{info: "TTS toggle is handled via /tts in audio mode (requires client mode with --server)"}
+		return slashResult{ttsToggle: true}
 
 	case "/help":
 		return slashResult{info: helpText()}
@@ -187,7 +188,7 @@ func helpText() string {
 		"  /history       - session history info",
 		"  /tools         - toggle web search tools",
 		"  /voice         - voice input info (Ctrl+Space / F5)",
-		"  /tts           - text-to-speech info",
+		"  /tts           - toggle text-to-speech",
 		"  /quit          - exit",
 		"",
 		"Navigation:",

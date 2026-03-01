@@ -8,6 +8,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
+	"github.com/rabidclock/localfreshllm/audio/playback"
 	"github.com/rabidclock/localfreshllm/backend"
 	"github.com/rabidclock/localfreshllm/render"
 	"github.com/rabidclock/localfreshllm/service"
@@ -34,6 +35,7 @@ type Config struct {
 	EnableTools  bool
 	RenderMD     bool
 	IsClient     bool
+	PiperModel   string
 }
 
 // Model is the top-level Bubble Tea model.
@@ -55,6 +57,9 @@ type Model struct {
 	history []string
 	histIdx int
 	histTmp string
+
+	ttsEnabled bool
+	player     *playback.Player
 
 	err error
 }
@@ -90,6 +95,7 @@ func New(cfg Config) Model {
 		streamBuf: &strings.Builder{},
 		history:   loadHistory(),
 		histIdx:   -1,
+		player:    &playback.Player{},
 	}
 
 	// Restore session messages into chat display.
@@ -164,11 +170,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 
+		// Trigger TTS if enabled and there's text to speak.
+		rawText := m.streamBuf.String()
+
 		m.streamBuf.Reset()
 		m.state = stateIdle
 		m.mascot.state = mascotIdle
 		m.input.Focus()
 		m.rebuildViewport()
+
+		if m.ttsEnabled && rawText != "" {
+			return m, tea.Batch(textinput.Blink, playTTS(m.cfg, m.player, rawText))
+		}
 		return m, textinput.Blink
 
 	case errorMsg:
@@ -184,9 +197,27 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.rebuildViewport()
 		return m, textinput.Blink
 
+	case audioPlayDoneMsg:
+		if msg.err != nil {
+			m.messages = append(m.messages, chatMessage{
+				role:    "error",
+				content: "TTS: " + msg.err.Error(),
+			})
+			m.rebuildViewport()
+		}
+		return m, nil
+
 	case slashResultMsg:
 		if msg.quit {
 			return m, tea.Quit
+		}
+		if msg.ttsToggle {
+			m.ttsEnabled = !m.ttsEnabled
+			status := "enabled"
+			if !m.ttsEnabled {
+				status = "disabled"
+			}
+			m.messages = append(m.messages, chatMessage{role: "system", content: "TTS " + status})
 		}
 		if msg.info != "" {
 			m.messages = append(m.messages, chatMessage{role: "system", content: msg.info})
@@ -345,7 +376,11 @@ func (m Model) View() string {
 	if !m.cfg.EnableTools {
 		toolsStatus = "off"
 	}
-	statusLine += "\n" + render.DimStyle.Render("tools: "+toolsStatus)
+	ttsStatus := "off"
+	if m.ttsEnabled {
+		ttsStatus = "on"
+	}
+	statusLine += "\n" + render.DimStyle.Render("tools: "+toolsStatus+"  tts: "+ttsStatus)
 	statusLine += "\n" + render.DimStyle.Render("/help for commands")
 
 	mascotWidth := lipgloss.Width(mascotView)

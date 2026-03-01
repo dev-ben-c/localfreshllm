@@ -46,7 +46,7 @@ type Model struct {
 	mascot   MascotModel
 
 	messages  []chatMessage
-	streamBuf strings.Builder
+	streamBuf *strings.Builder
 	streamCh  chan chatEvent
 
 	width  int
@@ -82,13 +82,14 @@ func New(cfg Config) Model {
 	vp.SetContent("")
 
 	m := Model{
-		cfg:      cfg,
-		state:    stateIdle,
-		input:    ti,
-		viewport: vp,
-		mascot:   NewMascotModel(),
-		history:  loadHistory(),
-		histIdx:  -1,
+		cfg:       cfg,
+		state:     stateIdle,
+		input:     ti,
+		viewport:  vp,
+		mascot:    NewMascotModel(),
+		streamBuf: &strings.Builder{},
+		history:   loadHistory(),
+		histIdx:   -1,
 	}
 
 	// Restore session messages into chat display.

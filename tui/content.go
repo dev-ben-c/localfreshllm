@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/muesli/reflow/wordwrap"
 
 	"github.com/dev-ben-c/localfreshllm/render"
 )
@@ -19,18 +20,25 @@ var (
 func buildContent(messages []chatMessage, streamBuf string, model string, width int) string {
 	var sb strings.Builder
 
+	wrap := func(s string) string {
+		if width > 0 {
+			return wordwrap.String(s, width-1)
+		}
+		return s
+	}
+
 	for _, msg := range messages {
 		switch msg.role {
 		case "user":
 			sb.WriteString(render.UserStyle.Render("You: "))
-			sb.WriteString(userMsgStyle.Render(msg.content))
+			sb.WriteString(userMsgStyle.Render(wrap(msg.content)))
 		case "assistant":
 			sb.WriteString(render.AssistantStyle.Render(model + ": "))
-			sb.WriteString(assistantMsgStyle.Render(msg.content))
+			sb.WriteString(assistantMsgStyle.Render(wrap(msg.content)))
 		case "system":
-			sb.WriteString(systemMsgStyle.Render(msg.content))
+			sb.WriteString(systemMsgStyle.Render(wrap(msg.content)))
 		case "error":
-			sb.WriteString(errorMsgStyle.Render("Error: " + msg.content))
+			sb.WriteString(errorMsgStyle.Render(wrap("Error: " + msg.content)))
 		}
 		sb.WriteString("\n\n")
 	}
@@ -38,7 +46,7 @@ func buildContent(messages []chatMessage, streamBuf string, model string, width 
 	// Show in-progress streaming text.
 	if streamBuf != "" {
 		sb.WriteString(render.AssistantStyle.Render(model + ": "))
-		sb.WriteString(assistantMsgStyle.Render(streamBuf))
+		sb.WriteString(assistantMsgStyle.Render(wrap(streamBuf)))
 		sb.WriteString("\n")
 	}
 

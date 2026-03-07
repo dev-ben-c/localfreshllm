@@ -629,7 +629,7 @@ func (m Model) View() string {
 	if ts := renderTimerStatus(m.timers); ts != "" {
 		statusLine += "\n" + render.TimerStyle.Render(ts)
 	}
-	statusLine += "\n" + render.DimStyle.Render("/help for commands")
+	statusLine += "\n" + render.DimStyle.Render(fmt.Sprintf("/help for commands  [w:%d]", m.width))
 
 	mascotWidth := lipgloss.Width(mascotView)
 	statusStyle := lipgloss.NewStyle().

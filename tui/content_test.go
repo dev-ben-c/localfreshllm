@@ -5,6 +5,26 @@ import (
 	"testing"
 )
 
+// stripANSI removes ANSI escape sequences from a string.
+func stripANSI(s string) string {
+	var result strings.Builder
+	inEscape := false
+	for _, r := range s {
+		if r == '\x1b' {
+			inEscape = true
+			continue
+		}
+		if inEscape {
+			if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') {
+				inEscape = false
+			}
+			continue
+		}
+		result.WriteRune(r)
+	}
+	return result.String()
+}
+
 func TestBuildContent_Empty(t *testing.T) {
 	result := buildContent(nil, "", "qwen3:14b", 80)
 	if result != "" {
@@ -95,6 +115,70 @@ func TestBuildContent_MultipleMessages(t *testing.T) {
 	}
 	if idx1 >= idx2 || idx2 >= idx3 || idx3 >= idx4 {
 		t.Error("messages not in expected order")
+	}
+}
+
+func TestBuildContent_WrapsLongLines(t *testing.T) {
+	width := 60
+	longText := "The quick brown fox jumps over the lazy dog. This is a really long response from the LLM that should definitely wrap to multiple lines when displayed in a terminal that is only 60 characters wide."
+
+	msgs := []chatMessage{
+		{role: "assistant", content: longText},
+	}
+
+	content := buildContent(msgs, "", "qwen3:14b", width)
+
+	// The content must have newlines from wrapping.
+	lines := strings.Split(content, "\n")
+	nonEmptyLines := 0
+	for _, line := range lines {
+		if strings.TrimSpace(stripANSI(line)) != "" {
+			nonEmptyLines++
+		}
+	}
+	if nonEmptyLines < 3 {
+		t.Errorf("expected at least 3 non-empty lines from wrapping, got %d:\n%s", nonEmptyLines, content)
+	}
+
+	// No visible line should exceed the width.
+	for i, line := range lines {
+		visible := stripANSI(line)
+		if len(visible) > width+2 { // small tolerance
+			t.Errorf("line %d exceeds width %d (visible %d chars): %q", i, width, len(visible), visible)
+		}
+	}
+}
+
+func TestBuildContent_WrapsStreamBuf(t *testing.T) {
+	width := 60
+	longStream := "This is a streaming response that keeps going and going without any breaks and should be wrapped by the buildContent function before being displayed in the viewport."
+
+	content := buildContent(nil, longStream, "qwen3:14b", width)
+
+	lines := strings.Split(content, "\n")
+	nonEmptyLines := 0
+	for _, line := range lines {
+		if strings.TrimSpace(stripANSI(line)) != "" {
+			nonEmptyLines++
+		}
+	}
+	if nonEmptyLines < 2 {
+		t.Errorf("expected at least 2 non-empty lines from stream wrapping, got %d:\n%s", nonEmptyLines, content)
+	}
+}
+
+func TestBuildContent_PreservesExistingNewlines(t *testing.T) {
+	width := 80
+	text := "Line one.\nLine two.\nLine three."
+
+	msgs := []chatMessage{
+		{role: "assistant", content: text},
+	}
+
+	content := buildContent(msgs, "", "test", width)
+
+	if !strings.Contains(content, "Line one.") || !strings.Contains(content, "Line two.") {
+		t.Errorf("existing newlines not preserved:\n%s", content)
 	}
 }
 

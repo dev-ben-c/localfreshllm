@@ -52,10 +52,14 @@ var (
 )
 
 // RenderMarkdown renders markdown text using glamour with dark style.
-func RenderMarkdown(text string) string {
+// Width controls word wrapping; 0 defaults to 80.
+func RenderMarkdown(text string, width int) string {
+	if width <= 0 {
+		width = 80
+	}
 	r, err := glamour.NewTermRenderer(
 		glamour.WithStylePath("dark"),
-		glamour.WithWordWrap(100),
+		glamour.WithWordWrap(width),
 	)
 	if err != nil {
 		return text

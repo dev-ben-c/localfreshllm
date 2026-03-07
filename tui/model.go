@@ -168,7 +168,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case doneMsg:
 		text := m.streamBuf.String()
 		if m.cfg.RenderMD && text != "" {
-			text = strings.TrimSpace(render.RenderMarkdown(text))
+			text = strings.TrimSpace(render.RenderMarkdown(text, m.width))
 		}
 		if text != "" {
 			m.messages = append(m.messages, chatMessage{role: "assistant", content: text})

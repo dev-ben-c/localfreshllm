@@ -280,7 +280,7 @@ func runClientOneShot(b backend.Backend, sysPrompt string, args []string) error 
 	}
 
 	if response != "" && flagRender {
-		fmt.Print(render.RenderMarkdown(response))
+		fmt.Print(render.RenderMarkdown(response, 0))
 	}
 
 	return err
@@ -418,7 +418,7 @@ func runOneShot(b backend.Backend, sysPrompt string, store *session.Store, sess 
 		}
 		if response != "" {
 			if flagRender {
-				fmt.Print(render.RenderMarkdown(response))
+				fmt.Print(render.RenderMarkdown(response, 0))
 			}
 			sess.AddMessage("assistant", response)
 		}

@@ -16,6 +16,7 @@ import (
 	"github.com/dev-ben-c/localfreshllm/render"
 	"github.com/dev-ben-c/localfreshllm/service"
 	"github.com/dev-ben-c/localfreshllm/session"
+	"github.com/dev-ben-c/localfreshllm/shell"
 )
 
 type state int
@@ -24,6 +25,7 @@ const (
 	stateIdle state = iota
 	stateStreaming
 	stateModelPick
+	stateSudoInput
 )
 
 // Config holds dependencies injected into the TUI model.
@@ -42,6 +44,7 @@ type Config struct {
 	PiperSpeaker string
 	WhisperURL   string
 	AudioDevice  string
+	SudoPassword string // cached sudo password, in-memory only
 }
 
 // Model is the top-level Bubble Tea model.
@@ -346,6 +349,21 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.voiceToggle {
 			return m.toggleVoiceMode()
 		}
+		if msg.sudoPrompt {
+			m.state = stateSudoInput
+			m.input.EchoMode = textinput.EchoPassword
+			m.input.Placeholder = "Enter sudo password..."
+			m.input.SetValue("")
+			m.messages = append(m.messages, chatMessage{role: "system", content: "Enter sudo password (hidden):"})
+			m.rebuildViewport()
+			return m, nil
+		}
+		if msg.sudoClear {
+			m.cfg.SudoPassword = ""
+			m.messages = append(m.messages, chatMessage{role: "system", content: "Sudo password cleared."})
+			m.rebuildViewport()
+			return m, nil
+		}
 		// Timer actions.
 		if msg.timerAdd != nil {
 			if len(m.timers) >= maxTimers {
@@ -405,7 +423,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	// Update sub-components.
-	if m.state == stateIdle || m.state == stateModelPick {
+	if m.state == stateIdle || m.state == stateModelPick || m.state == stateSudoInput {
 		var cmd tea.Cmd
 		m.input, cmd = m.input.Update(msg)
 		cmds = append(cmds, cmd)
@@ -462,7 +480,7 @@ func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 
 	// Forward to text input.
-	if m.state == stateIdle || m.state == stateModelPick {
+	if m.state == stateIdle || m.state == stateModelPick || m.state == stateSudoInput {
 		var cmd tea.Cmd
 		m.input, cmd = m.input.Update(msg)
 		return m, cmd
@@ -486,6 +504,21 @@ func (m *Model) handleSubmit() (tea.Model, tea.Cmd) {
 		m.state = stateIdle
 		if result.info != "" {
 			m.messages = append(m.messages, chatMessage{role: "system", content: result.info})
+		}
+		m.rebuildViewport()
+		return m, nil
+	}
+
+	// Sudo password input mode.
+	if m.state == stateSudoInput {
+		m.state = stateIdle
+		m.input.EchoMode = textinput.EchoNormal
+		m.input.Placeholder = "Type a message..."
+		if err := shell.ValidatePassword(input); err != nil {
+			m.messages = append(m.messages, chatMessage{role: "error", content: "Sudo authentication failed."})
+		} else {
+			m.cfg.SudoPassword = input
+			m.messages = append(m.messages, chatMessage{role: "system", content: "Sudo authenticated (15 min session)."})
 		}
 		m.rebuildViewport()
 		return m, nil

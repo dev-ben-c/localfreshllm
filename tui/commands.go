@@ -55,6 +55,7 @@ func startChat(cfg Config, messages []backend.Message, ch chan chatEvent) tea.Cm
 			SystemPrompt: cfg.SystemPrompt,
 			Location:     location,
 			EnableTools:  cfg.EnableTools,
+			SudoPassword: cfg.SudoPassword,
 		}
 
 		emit := func(ev service.ChatEvent) {

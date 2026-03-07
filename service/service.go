@@ -7,7 +7,9 @@ import (
 	"strings"
 
 	"github.com/dev-ben-c/localfreshllm/backend"
+	"github.com/dev-ben-c/localfreshllm/files"
 	"github.com/dev-ben-c/localfreshllm/ha"
+	"github.com/dev-ben-c/localfreshllm/shell"
 
 	searchtools "github.com/dev-ben-c/localfreshsearch/tools"
 )
@@ -29,6 +31,7 @@ type ChatRequest struct {
 	SystemPrompt string
 	Location     string
 	EnableTools  bool
+	SudoPassword string // cached sudo password, never sent to LLM
 }
 
 // ChatService orchestrates LLM chat with tool execution loops.
@@ -41,9 +44,14 @@ func New() *ChatService {
 
 // multiExecutor routes tool calls to the appropriate executor by name.
 type multiExecutor struct {
-	search  *searchtools.Executor
-	ha      *ha.Executor // nil if HA_TOKEN not set
-	haNames map[string]bool
+	search       *searchtools.Executor
+	ha           *ha.Executor    // nil if HA_TOKEN not set
+	fs           *files.Executor // nil if no allowed paths
+	sh           *shell.Executor // nil if SHELL_ENABLED != true
+	haNames      map[string]bool
+	fileNames    map[string]bool
+	shellNames   map[string]bool
+	sudoPassword string // per-request, never logged or sent to LLM
 }
 
 // toolResult is a unified result type used internally.
@@ -56,8 +64,10 @@ type toolResult struct {
 
 func newMultiExecutor(location string) *multiExecutor {
 	m := &multiExecutor{
-		search:  searchtools.NewExecutor(),
-		haNames: ha.ToolNames(),
+		search:     searchtools.NewExecutor(),
+		haNames:    ha.ToolNames(),
+		fileNames:  files.ToolNames(),
+		shellNames: shell.ToolNames(),
 	}
 	m.search.DefaultLocation = location
 	m.search.Prefetch()
@@ -66,6 +76,14 @@ func newMultiExecutor(location string) *multiExecutor {
 	haClient, err := ha.NewClient()
 	if err == nil {
 		m.ha = ha.NewExecutor(haClient)
+	}
+
+	// File executor is optional — uses FILE_ALLOWED_PATHS or defaults to $HOME.
+	m.fs = files.NewExecutorFromEnv()
+
+	// Shell executor is optional — only created if SHELL_ENABLED=true.
+	if shell.IsEnabled() {
+		m.sh = shell.NewExecutor()
 	}
 
 	return m
@@ -77,6 +95,14 @@ func (m *multiExecutor) Close() {
 
 func (m *multiExecutor) HasHA() bool {
 	return m.ha != nil
+}
+
+func (m *multiExecutor) HasFiles() bool {
+	return m.fs != nil
+}
+
+func (m *multiExecutor) HasShell() bool {
+	return m.sh != nil
 }
 
 func (m *multiExecutor) Execute(ctx context.Context, id, name string, args map[string]any) toolResult {
@@ -93,12 +119,42 @@ func (m *multiExecutor) Execute(ctx context.Context, id, name string, args map[s
 		return toolResult{ID: tr.ID, Name: tr.Name, Content: tr.Content, IsError: tr.IsError}
 	}
 
+	if m.fileNames[name] {
+		if m.fs == nil {
+			return toolResult{
+				ID:      id,
+				Name:    name,
+				Content: "File access is not configured (no allowed paths)",
+				IsError: true,
+			}
+		}
+		tr := m.fs.Execute(ctx, files.ToolCall{ID: id, Name: name, Args: args})
+		return toolResult{ID: tr.ID, Name: tr.Name, Content: tr.Content, IsError: tr.IsError}
+	}
+
+	if m.shellNames[name] {
+		if m.sh == nil {
+			return toolResult{
+				ID:      id,
+				Name:    name,
+				Content: "Shell execution is not enabled (set SHELL_ENABLED=true)",
+				IsError: true,
+			}
+		}
+		executor := m.sh
+		if m.sudoPassword != "" {
+			executor = m.sh.WithSudoPassword(m.sudoPassword)
+		}
+		tr := executor.Execute(ctx, shell.ToolCall{ID: id, Name: name, Args: args})
+		return toolResult{ID: tr.ID, Name: tr.Name, Content: tr.Content, IsError: tr.IsError}
+	}
+
 	tr := m.search.Execute(ctx, searchtools.ToolCall{ID: id, Name: name, Args: args})
 	return toolResult{ID: tr.ID, Name: tr.Name, Content: tr.Content, IsError: tr.IsError}
 }
 
 // getToolDefs returns tool definitions appropriate for the model, or nil if disabled.
-func getToolDefs(model string, enabled bool, hasHA bool) []any {
+func getToolDefs(model string, enabled bool, hasHA, hasFiles, hasShell bool) []any {
 	if !enabled {
 		return nil
 	}
@@ -109,10 +165,22 @@ func getToolDefs(model string, enabled bool, hasHA bool) []any {
 		if hasHA {
 			defs = append(defs, ha.AnthropicToolDefs()...)
 		}
+		if hasFiles {
+			defs = append(defs, files.AnthropicToolDefs()...)
+		}
+		if hasShell {
+			defs = append(defs, shell.AnthropicToolDefs()...)
+		}
 	} else {
 		defs = append(defs, searchtools.OllamaToolDefs()...)
 		if hasHA {
 			defs = append(defs, ha.OllamaToolDefs()...)
+		}
+		if hasFiles {
+			defs = append(defs, files.OllamaToolDefs()...)
+		}
+		if hasShell {
+			defs = append(defs, shell.OllamaToolDefs()...)
 		}
 	}
 	return defs
@@ -124,8 +192,9 @@ func getToolDefs(model string, enabled bool, hasHA bool) []any {
 func (s *ChatService) Chat(ctx context.Context, b backend.Backend, req ChatRequest, emit func(ChatEvent)) (string, []backend.Message, error) {
 	multi := newMultiExecutor(req.Location)
 	defer multi.Close()
+	multi.sudoPassword = req.SudoPassword
 
-	toolDefs := getToolDefs(req.Model, req.EnableTools, multi.HasHA())
+	toolDefs := getToolDefs(req.Model, req.EnableTools, multi.HasHA(), multi.HasFiles(), multi.HasShell())
 	sysPrompt := req.SystemPrompt
 
 	if req.Location != "" {
@@ -147,6 +216,22 @@ func (s *ChatService) Chat(ctx context.Context, b backend.Backend, req ChatReque
 				"When the user asks about their home, lights, temperature, or devices, use the ha_* tools. " +
 				"Only allowed domains are: light, switch, climate, sensor, binary_sensor, input_boolean. " +
 				"Refuse requests for domains like lock, cover, alarm, or automation."
+		}
+
+		if multi.HasFiles() {
+			sysPrompt = sysPrompt + "\n\n" +
+				"You have access to local and server files via file_* tools. " +
+				"Use file_list to browse directories, file_read to read file contents, " +
+				"file_write to create or update files, and file_info to check file metadata. " +
+				"All paths must be absolute. Access is restricted to configured directories only."
+		}
+
+		if multi.HasShell() {
+			sysPrompt = sysPrompt + "\n\n" +
+				"You have access to shell command execution via shell_exec. " +
+				"Commands run as the server user with sudo available for privileged operations. " +
+				"Use this for system administration, service management, package operations, and diagnostics. " +
+				"Commands have a default 30-second timeout (max 300s). Prefer targeted commands over broad ones."
 		}
 	}
 

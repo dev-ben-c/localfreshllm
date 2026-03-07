@@ -8,6 +8,7 @@ import (
 	"github.com/dev-ben-c/localfreshllm/audio"
 	"github.com/dev-ben-c/localfreshllm/device"
 	"github.com/dev-ben-c/localfreshllm/service"
+	"github.com/dev-ben-c/localfreshllm/shell"
 )
 
 // Server is the LocalFreshLLM HTTP API server.
@@ -18,6 +19,7 @@ type Server struct {
 	devices     *device.Store
 	whisper     *audio.WhisperClient
 	piper       *audio.PiperTTS
+	sudoStore   *shell.SudoStore
 }
 
 // AudioConfig holds optional audio service configuration.
@@ -34,6 +36,7 @@ func New(addr, masterKey string) *Server {
 		masterKey:   masterKey,
 		chatService: service.New(),
 		devices:     device.NewStore(),
+		sudoStore:   shell.NewSudoStore(),
 	}
 }
 
@@ -67,6 +70,7 @@ func (s *Server) Run() error {
 	authMux.HandleFunc("/v1/sessions/", s.handleSession)
 	authMux.HandleFunc("/v1/audio/transcribe", s.handleTranscribe)
 	authMux.HandleFunc("/v1/audio/speak", s.handleSpeak)
+	authMux.HandleFunc("/v1/sudo/auth", s.handleSudoAuth)
 
 	mux.Handle("/v1/chat", s.authMiddleware(authMux))
 	mux.Handle("/v1/models", s.authMiddleware(authMux))
@@ -75,6 +79,7 @@ func (s *Server) Run() error {
 	mux.Handle("/v1/sessions/", s.authMiddleware(authMux))
 	mux.Handle("/v1/audio/transcribe", s.authMiddleware(authMux))
 	mux.Handle("/v1/audio/speak", s.authMiddleware(authMux))
+	mux.Handle("/v1/sudo/auth", s.authMiddleware(authMux))
 
 	log.Printf("LocalFreshLLM server listening on %s", s.addr)
 

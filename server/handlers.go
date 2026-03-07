@@ -16,6 +16,7 @@ import (
 	"github.com/dev-ben-c/localfreshllm/device"
 	"github.com/dev-ben-c/localfreshllm/service"
 	"github.com/dev-ben-c/localfreshllm/session"
+	"github.com/dev-ben-c/localfreshllm/shell"
 	"github.com/dev-ben-c/localfreshllm/systemprompt"
 )
 
@@ -165,6 +166,7 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 		SystemPrompt: cfg.SysPrompt,
 		Location:     cfg.Location,
 		EnableTools:  cfg.EnableTools,
+		SudoPassword: s.sudoStore.Get(dev.ID),
 	}
 
 	ctx := r.Context()
@@ -382,6 +384,54 @@ func (s *Server) handleSession(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		w.WriteHeader(http.StatusNoContent)
+
+	default:
+		jsonError(w, http.StatusMethodNotAllowed, "method not allowed")
+	}
+}
+
+// sudoAuthRequest is the JSON body for POST /v1/sudo/auth.
+type sudoAuthRequest struct {
+	Password string `json:"password"`
+}
+
+func (s *Server) handleSudoAuth(w http.ResponseWriter, r *http.Request) {
+	dev := DeviceFromContext(r.Context())
+	if dev == nil {
+		jsonError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+
+	switch r.Method {
+	case http.MethodPost:
+		if !shell.IsEnabled() {
+			jsonError(w, http.StatusBadRequest, "shell execution is not enabled")
+			return
+		}
+		r.Body = http.MaxBytesReader(w, r.Body, maxJSONBodySize)
+		var req sudoAuthRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			jsonError(w, http.StatusBadRequest, "invalid request body")
+			return
+		}
+		if req.Password == "" {
+			jsonError(w, http.StatusBadRequest, "password is required")
+			return
+		}
+		if err := shell.ValidatePassword(req.Password); err != nil {
+			jsonError(w, http.StatusForbidden, "invalid sudo password")
+			return
+		}
+		s.sudoStore.Set(dev.ID, req.Password)
+		jsonOK(w, map[string]any{"status": "authenticated", "ttl_minutes": 15})
+
+	case http.MethodDelete:
+		s.sudoStore.Clear(dev.ID)
+		w.WriteHeader(http.StatusNoContent)
+
+	case http.MethodGet:
+		active := s.sudoStore.Get(dev.ID) != ""
+		jsonOK(w, map[string]bool{"active": active})
 
 	default:
 		jsonError(w, http.StatusMethodNotAllowed, "method not allowed")

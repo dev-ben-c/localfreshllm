@@ -91,6 +91,13 @@ body { display: flex; flex-direction: column; }
     <button id="voice-toggle" class="toggle-btn" title="Always-on voice (wake word: Cedric)">Voice</button>
     <span id="voice-status"></span>
   </div>
+  <div class="toolbar-sep"></div>
+  <div class="toolbar-group">
+    <button id="sudo-toggle" class="toggle-btn" title="Authenticate sudo for shell commands">sudo</button>
+    <input type="password" id="sudo-input" placeholder="sudo password" style="display:none; width:140px;">
+    <button id="sudo-save" style="display:none;">Auth</button>
+    <span id="sudo-status" class="saved-indicator"></span>
+  </div>
 </div>
 
 <div id="chat-container"></div>
@@ -610,7 +617,89 @@ input.addEventListener('input', () => {
   input.style.height = Math.min(input.scrollHeight, 120) + 'px';
 });
 
+// --- Sudo Auth ---
+
+const sudoToggle = document.getElementById('sudo-toggle');
+const sudoInput = document.getElementById('sudo-input');
+const sudoSave = document.getElementById('sudo-save');
+const sudoStatusEl = document.getElementById('sudo-status');
+let sudoExpanded = false;
+
+sudoToggle.addEventListener('click', async () => {
+  // If already authenticated, clicking clears it.
+  if (sudoToggle.classList.contains('active')) {
+    await fetch(BASE + '/v1/sudo/auth', { method: 'DELETE', headers: authHeaders, credentials: 'same-origin' });
+    sudoToggle.classList.remove('active');
+    sudoToggle.title = 'Authenticate sudo for shell commands';
+    showSudoStatus('cleared');
+    return;
+  }
+  sudoExpanded = !sudoExpanded;
+  sudoInput.style.display = sudoExpanded ? '' : 'none';
+  sudoSave.style.display = sudoExpanded ? '' : 'none';
+  if (sudoExpanded) sudoInput.focus();
+});
+
+async function submitSudo() {
+  const pw = sudoInput.value;
+  if (!pw) return;
+  sudoSave.disabled = true;
+  try {
+    const resp = await fetch(BASE + '/v1/sudo/auth', {
+      method: 'POST',
+      headers: { ...authHeaders, 'Content-Type': 'application/json' },
+      credentials: 'same-origin',
+      body: JSON.stringify({ password: pw })
+    });
+    if (resp.ok) {
+      sudoToggle.classList.add('active');
+      sudoToggle.title = 'Click to revoke sudo (15 min session)';
+      showSudoStatus('authenticated');
+      sudoInput.style.display = 'none';
+      sudoSave.style.display = 'none';
+      sudoExpanded = false;
+    } else {
+      showSudoStatus('auth failed');
+    }
+  } catch {
+    showSudoStatus('error');
+  } finally {
+    sudoInput.value = '';
+    sudoSave.disabled = false;
+  }
+}
+
+sudoSave.addEventListener('click', submitSudo);
+sudoInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') { e.preventDefault(); submitSudo(); }
+  if (e.key === 'Escape') {
+    sudoInput.style.display = 'none';
+    sudoSave.style.display = 'none';
+    sudoExpanded = false;
+  }
+});
+
+function showSudoStatus(text) {
+  sudoStatusEl.textContent = text;
+  sudoStatusEl.classList.add('show');
+  setTimeout(() => sudoStatusEl.classList.remove('show'), 2000);
+}
+
+async function checkSudoStatus() {
+  try {
+    const resp = await fetch(BASE + '/v1/sudo/auth', { headers: authHeaders, credentials: 'same-origin' });
+    if (resp.ok) {
+      const data = await resp.json();
+      if (data.active) {
+        sudoToggle.classList.add('active');
+        sudoToggle.title = 'Click to revoke sudo (15 min session)';
+      }
+    }
+  } catch {}
+}
+
 init();
+checkSudoStatus();
 </script>
 </body>
 </html>`

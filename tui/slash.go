@@ -20,6 +20,8 @@ type slashResult struct {
 	quit      bool
 	info      string
 	modelPick bool
+	sudoPrompt  bool // Enter sudo password input mode.
+	sudoClear   bool // Clear cached sudo password.
 	ttsToggle   bool
 	voiceToggle bool
 
@@ -70,6 +72,12 @@ func handleSlash(input string, cfg *Config) slashResult {
 
 	case "/device":
 		return handleDevice(parts[1:], cfg)
+
+	case "/sudo":
+		if len(parts) >= 2 && (parts[1] == "clear" || parts[1] == "revoke") {
+			return slashResult{sudoClear: true}
+		}
+		return slashResult{sudoPrompt: true}
 
 	case "/tts":
 		return slashResult{ttsToggle: true}
@@ -316,6 +324,8 @@ func helpText() string {
 		"  /clear         - clear conversation",
 		"  /history       - session history info",
 		"  /tools         - toggle web search tools",
+		"  /sudo          - authenticate sudo for shell commands",
+		"  /sudo clear    - revoke cached sudo password",
 		"  /voice         - toggle voice mode (wake word: \"cedric\")",
 		"  /tts           - toggle text-to-speech",
 		"  /device        - list or set audio input device",

@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/rabidclock/localfreshllm/backend"
+	"github.com/dev-ben-c/localfreshllm/backend"
 )
 
 // RemoteBackend implements backend.Backend by proxying to a LocalFreshLLM server.

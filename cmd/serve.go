@@ -6,7 +6,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/rabidclock/localfreshllm/server"
+	"github.com/dev-ben-c/localfreshllm/server"
 )
 
 var (

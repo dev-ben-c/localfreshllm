@@ -7,11 +7,11 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/rabidclock/localfreshllm/audio/capture"
-	"github.com/rabidclock/localfreshllm/backend"
-	"github.com/rabidclock/localfreshllm/client"
-	"github.com/rabidclock/localfreshllm/render"
-	"github.com/rabidclock/localfreshllm/service"
+	"github.com/dev-ben-c/localfreshllm/audio/capture"
+	"github.com/dev-ben-c/localfreshllm/backend"
+	"github.com/dev-ben-c/localfreshllm/client"
+	"github.com/dev-ben-c/localfreshllm/render"
+	"github.com/dev-ben-c/localfreshllm/service"
 
 	"github.com/dev-ben-c/localfreshsearch/weather"
 )

@@ -8,8 +8,8 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/rabidclock/localfreshllm/audio"
-	"github.com/rabidclock/localfreshllm/device"
+	"github.com/dev-ben-c/localfreshllm/audio"
+	"github.com/dev-ben-c/localfreshllm/device"
 )
 
 // withDevice injects a device profile into the request context for testing.

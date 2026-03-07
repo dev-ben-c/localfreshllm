@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/rabidclock/localfreshllm/device"
+	"github.com/dev-ben-c/localfreshllm/device"
 )
 
 type contextKey string

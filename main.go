@@ -3,8 +3,8 @@ package main
 import (
 	"os"
 
-	"github.com/rabidclock/localfreshllm/cmd"
-	"github.com/rabidclock/localfreshllm/render"
+	"github.com/dev-ben-c/localfreshllm/cmd"
+	"github.com/dev-ben-c/localfreshllm/render"
 )
 
 func main() {

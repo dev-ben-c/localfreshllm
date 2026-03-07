@@ -3,8 +3,8 @@ package cmd
 import (
 	"fmt"
 
-	"github.com/rabidclock/localfreshllm/render"
-	"github.com/rabidclock/localfreshllm/session"
+	"github.com/dev-ben-c/localfreshllm/render"
+	"github.com/dev-ben-c/localfreshllm/session"
 )
 
 func runHistory() error {

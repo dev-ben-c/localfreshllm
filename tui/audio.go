@@ -10,10 +10,10 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"github.com/rabidclock/localfreshllm/audio"
-	"github.com/rabidclock/localfreshllm/audio/capture"
-	"github.com/rabidclock/localfreshllm/audio/playback"
-	"github.com/rabidclock/localfreshllm/client"
+	"github.com/dev-ben-c/localfreshllm/audio"
+	"github.com/dev-ben-c/localfreshllm/audio/capture"
+	"github.com/dev-ben-c/localfreshllm/audio/playback"
+	"github.com/dev-ben-c/localfreshllm/client"
 )
 
 // Tea messages for audio events.

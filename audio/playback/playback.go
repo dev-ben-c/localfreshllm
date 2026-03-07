@@ -7,7 +7,7 @@ import (
 	"os/exec"
 	"strings"
 
-	"github.com/rabidclock/localfreshllm/audio"
+	"github.com/dev-ben-c/localfreshllm/audio"
 )
 
 // Player plays audio using system audio tools.

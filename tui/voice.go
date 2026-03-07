@@ -6,7 +6,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"github.com/rabidclock/localfreshllm/audio/capture"
+	"github.com/dev-ben-c/localfreshllm/audio/capture"
 )
 
 const wakeWord = "cedric"

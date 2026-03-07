@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/rabidclock/localfreshllm/backend"
-	"github.com/rabidclock/localfreshllm/session"
+	"github.com/dev-ben-c/localfreshllm/backend"
+	"github.com/dev-ben-c/localfreshllm/session"
 )
 
 // mockBackend implements backend.Backend for testing.

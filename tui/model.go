@@ -10,12 +10,12 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
-	"github.com/rabidclock/localfreshllm/audio/capture"
-	"github.com/rabidclock/localfreshllm/audio/playback"
-	"github.com/rabidclock/localfreshllm/backend"
-	"github.com/rabidclock/localfreshllm/render"
-	"github.com/rabidclock/localfreshllm/service"
-	"github.com/rabidclock/localfreshllm/session"
+	"github.com/dev-ben-c/localfreshllm/audio/capture"
+	"github.com/dev-ben-c/localfreshllm/audio/playback"
+	"github.com/dev-ben-c/localfreshllm/backend"
+	"github.com/dev-ben-c/localfreshllm/render"
+	"github.com/dev-ben-c/localfreshllm/service"
+	"github.com/dev-ben-c/localfreshllm/session"
 )
 
 type state int

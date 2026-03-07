@@ -8,9 +8,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/rabidclock/localfreshllm/audio"
-	"github.com/rabidclock/localfreshllm/device"
-	"github.com/rabidclock/localfreshllm/session"
+	"github.com/dev-ben-c/localfreshllm/audio"
+	"github.com/dev-ben-c/localfreshllm/device"
+	"github.com/dev-ben-c/localfreshllm/session"
 )
 
 func newTestServer(t *testing.T) *Server {

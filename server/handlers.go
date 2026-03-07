@@ -12,11 +12,11 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/rabidclock/localfreshllm/backend"
-	"github.com/rabidclock/localfreshllm/device"
-	"github.com/rabidclock/localfreshllm/service"
-	"github.com/rabidclock/localfreshllm/session"
-	"github.com/rabidclock/localfreshllm/systemprompt"
+	"github.com/dev-ben-c/localfreshllm/backend"
+	"github.com/dev-ben-c/localfreshllm/device"
+	"github.com/dev-ben-c/localfreshllm/service"
+	"github.com/dev-ben-c/localfreshllm/session"
+	"github.com/dev-ben-c/localfreshllm/systemprompt"
 )
 
 // chatRequest is the JSON body for POST /v1/chat.

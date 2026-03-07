@@ -5,7 +5,7 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 
-	"github.com/rabidclock/localfreshllm/render"
+	"github.com/dev-ben-c/localfreshllm/render"
 )
 
 var (

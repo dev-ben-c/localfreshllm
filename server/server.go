@@ -5,9 +5,9 @@ import (
 	"log"
 	"net/http"
 
-	"github.com/rabidclock/localfreshllm/audio"
-	"github.com/rabidclock/localfreshllm/device"
-	"github.com/rabidclock/localfreshllm/service"
+	"github.com/dev-ben-c/localfreshllm/audio"
+	"github.com/dev-ben-c/localfreshllm/device"
+	"github.com/dev-ben-c/localfreshllm/service"
 )
 
 // Server is the LocalFreshLLM HTTP API server.

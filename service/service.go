@@ -6,11 +6,11 @@ import (
 	"log"
 	"strings"
 
-	"github.com/rabidclock/localfreshllm/backend"
+	"github.com/dev-ben-c/localfreshllm/backend"
 
 	searchtools "github.com/dev-ben-c/localfreshsearch/tools"
-	"github.com/rabidclock/localfreshha/haclient"
-	hatools "github.com/rabidclock/localfreshha/tools"
+	"github.com/dev-ben-c/localfreshha/haclient"
+	hatools "github.com/dev-ben-c/localfreshha/tools"
 )
 
 // ChatEvent represents a streaming event from the chat service.

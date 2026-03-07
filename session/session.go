@@ -3,7 +3,7 @@ package session
 import (
 	"time"
 
-	"github.com/rabidclock/localfreshllm/backend"
+	"github.com/dev-ben-c/localfreshllm/backend"
 )
 
 // Session represents a conversation with metadata.

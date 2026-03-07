@@ -8,8 +8,8 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"github.com/rabidclock/localfreshllm/backend"
-	"github.com/rabidclock/localfreshllm/service"
+	"github.com/dev-ben-c/localfreshllm/backend"
+	"github.com/dev-ben-c/localfreshllm/service"
 )
 
 // chatEvent is an internal event sent over channels from the streaming goroutine.

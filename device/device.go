@@ -13,7 +13,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/rabidclock/localfreshllm/session"
+	"github.com/dev-ben-c/localfreshllm/session"
 )
 
 // Profile represents a registered device.

@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/rabidclock/localfreshllm/backend"
-	"github.com/rabidclock/localfreshllm/render"
+	"github.com/dev-ben-c/localfreshllm/backend"
+	"github.com/dev-ben-c/localfreshllm/render"
 )
 
 func runList() error {

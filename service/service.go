@@ -64,9 +64,7 @@ func newMultiExecutor(location string) *multiExecutor {
 
 	// HA executor is optional — only created if HA_TOKEN is set.
 	haClient, err := ha.NewClient()
-	if err != nil {
-		log.Printf("Home Assistant tools disabled: %v", err)
-	} else {
+	if err == nil {
 		m.ha = ha.NewExecutor(haClient)
 	}
 

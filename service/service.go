@@ -7,10 +7,9 @@ import (
 	"strings"
 
 	"github.com/dev-ben-c/localfreshllm/backend"
+	"github.com/dev-ben-c/localfreshllm/ha"
 
 	searchtools "github.com/dev-ben-c/localfreshsearch/tools"
-	"github.com/dev-ben-c/localfreshha/haclient"
-	hatools "github.com/dev-ben-c/localfreshha/tools"
 )
 
 // ChatEvent represents a streaming event from the chat service.
@@ -43,7 +42,7 @@ func New() *ChatService {
 // multiExecutor routes tool calls to the appropriate executor by name.
 type multiExecutor struct {
 	search  *searchtools.Executor
-	ha      *hatools.Executor // nil if HA_TOKEN not set
+	ha      *ha.Executor // nil if HA_TOKEN not set
 	haNames map[string]bool
 }
 
@@ -58,17 +57,17 @@ type toolResult struct {
 func newMultiExecutor(location string) *multiExecutor {
 	m := &multiExecutor{
 		search:  searchtools.NewExecutor(),
-		haNames: hatools.ToolNames(),
+		haNames: ha.ToolNames(),
 	}
 	m.search.DefaultLocation = location
 	m.search.Prefetch()
 
 	// HA executor is optional — only created if HA_TOKEN is set.
-	haClient, err := haclient.NewClient()
+	haClient, err := ha.NewClient()
 	if err != nil {
 		log.Printf("Home Assistant tools disabled: %v", err)
 	} else {
-		m.ha = hatools.NewExecutor(haClient)
+		m.ha = ha.NewExecutor(haClient)
 	}
 
 	return m
@@ -92,7 +91,7 @@ func (m *multiExecutor) Execute(ctx context.Context, id, name string, args map[s
 				IsError: true,
 			}
 		}
-		tr := m.ha.Execute(ctx, hatools.ToolCall{ID: id, Name: name, Args: args})
+		tr := m.ha.Execute(ctx, ha.ToolCall{ID: id, Name: name, Args: args})
 		return toolResult{ID: tr.ID, Name: tr.Name, Content: tr.Content, IsError: tr.IsError}
 	}
 
@@ -110,12 +109,12 @@ func getToolDefs(model string, enabled bool, hasHA bool) []any {
 	if isAnthropic {
 		defs = append(defs, searchtools.AnthropicToolDefs()...)
 		if hasHA {
-			defs = append(defs, hatools.AnthropicToolDefs()...)
+			defs = append(defs, ha.AnthropicToolDefs()...)
 		}
 	} else {
 		defs = append(defs, searchtools.OllamaToolDefs()...)
 		if hasHA {
-			defs = append(defs, hatools.OllamaToolDefs()...)
+			defs = append(defs, ha.OllamaToolDefs()...)
 		}
 	}
 	return defs

@@ -3,6 +3,7 @@ package tui
 import (
 	"context"
 	"fmt"
+	"log"
 	"strconv"
 	"strings"
 
@@ -83,8 +84,21 @@ func handleSlash(input string, cfg *Config) slashResult {
 	return slashResult{info: fmt.Sprintf("Unknown command: %s (try /help)", cmd)}
 }
 
+func listModels(cfg *Config) []string {
+	ctx := context.Background()
+	if cfg.IsClient {
+		models, err := cfg.Backend.ListModels(ctx)
+		if err != nil {
+			log.Printf("Remote model listing failed: %v", err)
+			return nil
+		}
+		return models
+	}
+	return service.ListModels(ctx)
+}
+
 func handleModelSwitch(arg string, cfg *Config) slashResult {
-	models := service.ListModels(context.Background())
+	models := listModels(cfg)
 
 	// Try as number first.
 	if n, err := strconv.Atoi(arg); err == nil && n >= 1 && n <= len(models) {
@@ -111,9 +125,9 @@ func switchModel(name string, cfg *Config) slashResult {
 }
 
 func showModelPicker(cfg *Config) slashResult {
-	models := service.ListModels(context.Background())
+	models := listModels(cfg)
 	if len(models) == 0 {
-		return slashResult{info: "No models available."}
+		return slashResult{info: "No models available. Is Ollama running? (check: curl http://127.0.0.1:11434/api/tags)"}
 	}
 
 	var sb strings.Builder
@@ -131,7 +145,7 @@ func showModelPicker(cfg *Config) slashResult {
 }
 
 func handleModelPickInput(input string, cfg *Config) slashResult {
-	models := service.ListModels(context.Background())
+	models := listModels(cfg)
 	n, err := strconv.Atoi(strings.TrimSpace(input))
 	if err != nil || n < 1 || n > len(models) {
 		return slashResult{info: "Invalid selection."}

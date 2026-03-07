@@ -9,12 +9,15 @@ require (
 	github.com/charmbracelet/lipgloss v1.1.1-0.20250404203927-76690c660834
 	github.com/dev-ben-c/localfreshsearch v0.0.0
 	github.com/google/uuid v1.6.0
+	github.com/rabidclock/localfreshha v0.0.0
 	github.com/mattn/go-isatty v0.0.20
 	github.com/muesli/termenv v0.16.0
 	github.com/spf13/cobra v1.10.2
 )
 
 replace github.com/dev-ben-c/localfreshsearch => ../localfreshsearch
+
+replace github.com/rabidclock/localfreshha => ../localfreshha
 
 require (
 	github.com/alecthomas/chroma/v2 v2.14.0 // indirect

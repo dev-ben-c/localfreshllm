@@ -55,6 +55,7 @@ func (s *Server) Run() error {
 
 	// Public endpoints.
 	mux.HandleFunc("/health", s.handleHealth)
+	mux.HandleFunc("/chat", s.handleChatPage)
 	mux.HandleFunc("/v1/devices/register", s.handleRegister)
 
 	// Authenticated endpoints — wrap with auth middleware.

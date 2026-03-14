@@ -87,6 +87,9 @@ func serverKey() string {
 }
 
 func run(cmd *cobra.Command, args []string) error {
+	// Load env file if it exists (same file the systemd service uses).
+	loadEnvFile("/etc/localfreshllm.env")
+
 	// Subcommand modes.
 	if flagList {
 		return runList()
@@ -210,7 +213,7 @@ func runTUI(b backend.Backend, sysPrompt string, store *session.Store, sess *ses
 		WhisperURL:   detectWhisperURL(),
 	})
 
-	p := tea.NewProgram(m, tea.WithAltScreen())
+	p := tea.NewProgram(m, tea.WithAltScreen(), tea.WithMouseCellMotion())
 	_, err := p.Run()
 	return err
 }
@@ -443,4 +446,26 @@ func streamCallback() backend.StreamCallback {
 // listAllModels queries both backends and returns a combined model list.
 func listAllModels() []string {
 	return service.ListModels(context.Background())
+}
+
+// loadEnvFile reads a KEY=VALUE file and sets any variables not already in the environment.
+func loadEnvFile(path string) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || line[0] == '#' {
+			continue
+		}
+		k, v, ok := strings.Cut(line, "=")
+		if !ok {
+			continue
+		}
+		// Don't override existing env vars.
+		if os.Getenv(k) == "" {
+			os.Setenv(k, v)
+		}
+	}
 }

@@ -149,6 +149,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyMsg:
 		return m.handleKey(msg)
 
+	case tea.MouseMsg:
+		var cmd tea.Cmd
+		m.viewport, cmd = m.viewport.Update(msg)
+		return m, cmd
+
 	case mascotTickMsg:
 		var cmd tea.Cmd
 		m.mascot, cmd = m.mascot.Update(msg)

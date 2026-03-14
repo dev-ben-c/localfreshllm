@@ -49,6 +49,10 @@ var (
 	TimerStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("3")).
 			Bold(true)
+
+	// ToolStyle for tool names in the status bar.
+	ToolStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("7"))
 )
 
 // RenderMarkdown renders markdown text using glamour with dark style.

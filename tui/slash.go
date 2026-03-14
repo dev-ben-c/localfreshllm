@@ -58,11 +58,10 @@ func handleSlash(input string, cfg *Config) slashResult {
 
 	case "/tools":
 		cfg.EnableTools = !cfg.EnableTools
-		status := "enabled"
 		if !cfg.EnableTools {
-			status = "disabled"
+			return slashResult{info: "Tools disabled"}
 		}
-		return slashResult{info: "Tools " + status}
+		return slashResult{info: "Tools enabled: " + activeToolsList()}
 
 	case "/location":
 		return handleLocation(parts[1:], cfg)
@@ -323,7 +322,7 @@ func helpText() string {
 		"  /location      - show or set default location",
 		"  /clear         - clear conversation",
 		"  /history       - session history info",
-		"  /tools         - toggle web search tools",
+		"  /tools         - toggle tools (web, bash, engram, ha, files)",
 		"  /sudo          - authenticate sudo for shell commands",
 		"  /sudo clear    - revoke cached sudo password",
 		"  /voice         - toggle voice mode (wake word: \"cedric\")",

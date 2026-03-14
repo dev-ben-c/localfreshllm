@@ -4,9 +4,11 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"os"
 	"strings"
 
 	"github.com/dev-ben-c/localfreshllm/backend"
+	"github.com/dev-ben-c/localfreshllm/engram"
 	"github.com/dev-ben-c/localfreshllm/files"
 	"github.com/dev-ben-c/localfreshllm/ha"
 	"github.com/dev-ben-c/localfreshllm/shell"
@@ -45,12 +47,14 @@ func New() *ChatService {
 // multiExecutor routes tool calls to the appropriate executor by name.
 type multiExecutor struct {
 	search       *searchtools.Executor
-	ha           *ha.Executor    // nil if HA_TOKEN not set
-	fs           *files.Executor // nil if no allowed paths
-	sh           *shell.Executor // nil if SHELL_ENABLED != true
+	ha           *ha.Executor      // nil if HA_TOKEN not set
+	fs           *files.Executor   // nil if no allowed paths
+	sh           *shell.Executor   // nil if SHELL_ENABLED != true
+	eg           *engram.Executor  // nil if engram DB not found
 	haNames      map[string]bool
 	fileNames    map[string]bool
 	shellNames   map[string]bool
+	engramNames  map[string]bool
 	sudoPassword string // per-request, never logged or sent to LLM
 }
 
@@ -62,12 +66,13 @@ type toolResult struct {
 	IsError bool
 }
 
-func newMultiExecutor(location string) *multiExecutor {
+func newMultiExecutor(location, model string) *multiExecutor {
 	m := &multiExecutor{
-		search:     searchtools.NewExecutor(),
-		haNames:    ha.ToolNames(),
-		fileNames:  files.ToolNames(),
-		shellNames: shell.ToolNames(),
+		search:      searchtools.NewExecutor(),
+		haNames:     ha.ToolNames(),
+		fileNames:   files.ToolNames(),
+		shellNames:  shell.ToolNames(),
+		engramNames: engram.ToolNames(),
 	}
 	m.search.DefaultLocation = location
 	m.search.Prefetch()
@@ -86,11 +91,24 @@ func newMultiExecutor(location string) *multiExecutor {
 		m.sh = shell.NewExecutor()
 	}
 
+	// Engram executor is optional — enabled if ~/.engram/memory.db exists.
+	dbPath := os.Getenv("ENGRAM_DB")
+	if dbPath == "" {
+		dbPath = engram.DefaultDBPath()
+	}
+	store, err := engram.NewStore(dbPath)
+	if err == nil {
+		m.eg = engram.NewExecutor(store, model)
+	}
+
 	return m
 }
 
 func (m *multiExecutor) Close() {
 	m.search.Close()
+	if m.eg != nil {
+		m.eg.Close()
+	}
 }
 
 func (m *multiExecutor) HasHA() bool {
@@ -103,6 +121,10 @@ func (m *multiExecutor) HasFiles() bool {
 
 func (m *multiExecutor) HasShell() bool {
 	return m.sh != nil
+}
+
+func (m *multiExecutor) HasEngram() bool {
+	return m.eg != nil
 }
 
 func (m *multiExecutor) Execute(ctx context.Context, id, name string, args map[string]any) toolResult {
@@ -149,12 +171,25 @@ func (m *multiExecutor) Execute(ctx context.Context, id, name string, args map[s
 		return toolResult{ID: tr.ID, Name: tr.Name, Content: tr.Content, IsError: tr.IsError}
 	}
 
+	if m.engramNames[name] {
+		if m.eg == nil {
+			return toolResult{
+				ID:      id,
+				Name:    name,
+				Content: "Engram memory is not available (database not found)",
+				IsError: true,
+			}
+		}
+		tr := m.eg.Execute(ctx, engram.ToolCall{ID: id, Name: name, Args: args})
+		return toolResult{ID: tr.ID, Name: tr.Name, Content: tr.Content, IsError: tr.IsError}
+	}
+
 	tr := m.search.Execute(ctx, searchtools.ToolCall{ID: id, Name: name, Args: args})
 	return toolResult{ID: tr.ID, Name: tr.Name, Content: tr.Content, IsError: tr.IsError}
 }
 
 // getToolDefs returns tool definitions appropriate for the model, or nil if disabled.
-func getToolDefs(model string, enabled bool, hasHA, hasFiles, hasShell bool) []any {
+func getToolDefs(model string, enabled bool, hasHA, hasFiles, hasShell, hasEngram bool) []any {
 	if !enabled {
 		return nil
 	}
@@ -171,6 +206,9 @@ func getToolDefs(model string, enabled bool, hasHA, hasFiles, hasShell bool) []a
 		if hasShell {
 			defs = append(defs, shell.AnthropicToolDefs()...)
 		}
+		if hasEngram {
+			defs = append(defs, engram.AnthropicToolDefs()...)
+		}
 	} else {
 		defs = append(defs, searchtools.OllamaToolDefs()...)
 		if hasHA {
@@ -182,6 +220,9 @@ func getToolDefs(model string, enabled bool, hasHA, hasFiles, hasShell bool) []a
 		if hasShell {
 			defs = append(defs, shell.OllamaToolDefs()...)
 		}
+		if hasEngram {
+			defs = append(defs, engram.OllamaToolDefs()...)
+		}
 	}
 	return defs
 }
@@ -190,11 +231,11 @@ func getToolDefs(model string, enabled bool, hasHA, hasFiles, hasShell bool) []a
 // The emit callback is invoked for each streaming event.
 // Returns the final response text, new messages generated during tool loops, and any error.
 func (s *ChatService) Chat(ctx context.Context, b backend.Backend, req ChatRequest, emit func(ChatEvent)) (string, []backend.Message, error) {
-	multi := newMultiExecutor(req.Location)
+	multi := newMultiExecutor(req.Location, req.Model)
 	defer multi.Close()
 	multi.sudoPassword = req.SudoPassword
 
-	toolDefs := getToolDefs(req.Model, req.EnableTools, multi.HasHA(), multi.HasFiles(), multi.HasShell())
+	toolDefs := getToolDefs(req.Model, req.EnableTools, multi.HasHA(), multi.HasFiles(), multi.HasShell(), multi.HasEngram())
 	sysPrompt := req.SystemPrompt
 
 	if req.Location != "" {
@@ -232,6 +273,15 @@ func (s *ChatService) Chat(ctx context.Context, b backend.Backend, req ChatReque
 				"Commands run as the server user with sudo available for privileged operations. " +
 				"Use this for system administration, service management, package operations, and diagnostics. " +
 				"Commands have a default 30-second timeout (max 300s). Prefer targeted commands over broad ones."
+		}
+
+		if multi.HasEngram() {
+			sysPrompt = sysPrompt + "\n\n" +
+				"You have access to persistent memory via engram_* tools. " +
+				"Use engram_recall to search for stored knowledge about infrastructure, projects, decisions, and configurations. " +
+				"Use engram_remember to store important facts, decisions, or discoveries for future reference. " +
+				"Use engram_get_context for broad context about the user and system. " +
+				"When storing memories, always provide a category, key, and context explaining your reasoning."
 		}
 	}
 

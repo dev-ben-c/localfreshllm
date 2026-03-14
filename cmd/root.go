@@ -60,7 +60,7 @@ func init() {
 	rootCmd.Flags().BoolVar(&flagHistory, "history", false, "List saved conversations")
 	rootCmd.Flags().StringVar(&flagResume, "resume", "", "Session ID (or prefix) to continue")
 	rootCmd.Flags().BoolVar(&flagRender, "render", false, "Render markdown output with glamour")
-	rootCmd.Flags().BoolVar(&flagTools, "tools", true, "Enable web search and page reading tools")
+	rootCmd.Flags().BoolVar(&flagTools, "tools", true, "Enable tools (web, bash, engram, ha, files)")
 	rootCmd.Flags().StringVar(&flagServer, "server", "", "Server URL for client mode (or LOCALFRESH_SERVER env)")
 	rootCmd.Flags().StringVar(&flagKey, "key", "", "API key for server auth (or LOCALFRESH_KEY env)")
 }

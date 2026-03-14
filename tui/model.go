@@ -13,6 +13,8 @@ import (
 	"github.com/dev-ben-c/localfreshllm/audio/capture"
 	"github.com/dev-ben-c/localfreshllm/audio/playback"
 	"github.com/dev-ben-c/localfreshllm/backend"
+	"github.com/dev-ben-c/localfreshllm/engram"
+	"github.com/dev-ben-c/localfreshllm/ha"
 	"github.com/dev-ben-c/localfreshllm/render"
 	"github.com/dev-ben-c/localfreshllm/service"
 	"github.com/dev-ben-c/localfreshllm/session"
@@ -613,9 +615,9 @@ func (m Model) View() string {
 	if m.cfg.IsClient {
 		statusLine += render.DimStyle.Render("  (remote)")
 	}
-	toolsStatus := "on"
-	if !m.cfg.EnableTools {
-		toolsStatus = "off"
+	toolsStatus := "off"
+	if m.cfg.EnableTools {
+		toolsStatus = render.ToolStyle.Render(activeToolsList())
 	}
 	ttsStatus := "off"
 	if m.ttsEnabled {
@@ -660,4 +662,20 @@ func (m Model) View() string {
 		divider,
 		inputView,
 	)
+}
+
+// activeToolsList returns a compact string of which tool groups are available.
+func activeToolsList() string {
+	var tools []string
+	tools = append(tools, "web", "files") // always available
+	if shell.IsEnabled() {
+		tools = append(tools, "bash")
+	}
+	if _, err := ha.NewClient(); err == nil {
+		tools = append(tools, "ha")
+	}
+	if _, err := engram.NewStore(""); err == nil {
+		tools = append(tools, "engram")
+	}
+	return strings.Join(tools, ",")
 }

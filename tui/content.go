@@ -11,7 +11,7 @@ import (
 
 var (
 	userMsgStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color("6"))
-	assistantMsgStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("5"))
+	assistantMsgStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("7"))
 	systemMsgStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
 	errorMsgStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("1")).Bold(true)
 )
